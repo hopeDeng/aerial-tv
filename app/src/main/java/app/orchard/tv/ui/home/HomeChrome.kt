@@ -515,7 +515,7 @@ val PlatePadV = 20.dp
 private val PlateCorner = 32.dp
 
 /** The status pill's place: Home hangs it here, and the live window's top gap is measured from it. */
-val PillTop = 28.dp
+val PillTop = 14.dp
 val PillHeight = 34.dp
 
 /** Panels' background (PanelBackdrop): the frosted picture under this much black. */
@@ -673,6 +673,153 @@ fun ShelfClock(
     }
 }
 
+/** The weather capsule's colours, as arclauncher draws them. */
+private val HumidityGlass = Color(0x99009988)
+private val HumidityEdge = Color(0x6600E5CC)
+
+/**
+ * Home's large clock after arclauncher: the time in light digits, the date and lunar date under it,
+ * then the weather: icon, temperature and condition, the city with a humidity capsule, then
+ * tomorrow. The screensaver keeps [ShelfClock]; this one only stands on Home.
+ */
+@Composable
+fun HomeShelfClock(
+    now: LocalDateTime,
+    modifier: Modifier = Modifier,
+    alignEnd: Boolean = false,
+    toSaver: () -> Float = { 0f },
+    saving: Boolean = false,
+    away: Boolean = false,
+    /** The weather block as a control, where the remote leads from it; null keeps it plain. */
+    weather: WeatherControls? = null,
+) {
+    val drift = heldDrift(saving, now)
+    val shadow = Shadow(Color.Black.copy(alpha = 0.45f), Offset(0f, 2f), blurRadius = 7.5f)
+    val dim = Color.White.copy(alpha = 0.9f)
+    val reduced = LocalReducedMotion.current
+    val asideGone by animateFloatAsState(
+        if (away) 1f else 0f,
+        if (reduced) snap() else if (away) tween(400, easing = Motion.EaseOut)
+        else tween(400, delayMillis = CLOCK_BACK_MS * 7 / 10, easing = Motion.EaseOut),
+        label = "home-clock-aside",
+    )
+    val aside = Modifier.graphicsLayer {
+        alpha = 1f - asideGone
+        compositingStrategy = CompositingStrategy.ModulateAlpha
+    }
+    Column(modifier, horizontalAlignment = if (alignEnd) Alignment.End else Alignment.Start) {
+        BasicText(
+            timeText(now),
+            style = Type.HomeClock.copy(shadow = shadow),
+            modifier = Modifier
+                .toSaverClock(toSaver, Type.HomeClock.fontSize, 0.dp, drift)
+                .capBox(Type.HomeClock.fontSize),
+        )
+        val lunar = if (Locale.getDefault().language == "zh") Lunar.text(now.toLocalDate()) else null
+        BasicText(
+            buildAnnotatedString {
+                append(dateText(now))
+                if (lunar != null) withStyle(SpanStyle(color = dim, fontWeight = FontWeight.W500)) { append("  $lunar") }
+            },
+            style = Type.ClockDetail.copy(shadow = shadow),
+            modifier = aside.padding(top = 10.dp).capBox(Type.ClockDetail.fontSize),
+        )
+        Weather.now?.takeIf { AerialSettings.showWeather }?.let { w ->
+            if (weather == null) {
+                Box(aside) { HomeWeather(w, shadow, dim, Color.White) }
+            } else Pressable(
+                onClick = weather.onClick,
+                focusRequester = weather.focusRequester,
+                focusedScale = 1.04f,
+                onKey = weatherKeys(weather),
+                modifier = aside,
+            ) { state ->
+                Box(Modifier.weatherFocus(state.focused)) {
+                    HomeWeather(
+                        w,
+                        shadow,
+                        if (state.focused) Palette.OnFocus.copy(alpha = 0.72f) else dim,
+                        if (state.focused) Palette.OnFocus else Color.White,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** The weather under [HomeShelfClock], laid out as arclauncher's HomeClockWeather. */
+@Composable
+private fun HomeWeather(
+    w: WeatherNow,
+    shadow: Shadow,
+    detail: Color,
+    main: Color,
+) {
+    val place = Weather.place?.takeIf { it.length <= 12 } ?: "--"
+    Column(Modifier.padding(top = 9.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            GlyphIcon(glyphFor(w), main, 60.dp, Modifier.padding(end = 15.dp))
+            BasicText(
+                "${w.celsius}°",
+                style = Type.HomeWeatherTemp.copy(color = main, shadow = shadow),
+            )
+            BasicText(
+                stringResource(conditionName(w.kind)),
+                style = Type.HomeWeatherDetail.copy(color = detail, shadow = shadow),
+                modifier = Modifier.padding(start = 9.dp),
+            )
+        }
+        Row(Modifier.padding(top = 4.5.dp), verticalAlignment = Alignment.CenterVertically) {
+            BasicText(place, style = Type.HomeWeatherMeta.copy(color = detail, shadow = shadow))
+            w.humidity?.let { humidity ->
+                BasicText(
+                    stringResource(R.string.weather_humidity, humidity),
+                    style = Type.HomeWeatherPill.copy(color = detail),
+                    modifier = Modifier
+                        .padding(start = 9.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(HumidityGlass)
+                        .border(1.dp, HumidityEdge, RoundedCornerShape(50))
+                        .padding(horizontal = 7.5.dp, vertical = 1.5.dp),
+                )
+            }
+        }
+        val tomorrow = w.tomorrow
+        Row(Modifier.padding(top = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+            BasicText(
+                stringResource(R.string.weather_tomorrow),
+                style = Type.HomeWeatherDetail.copy(color = detail, shadow = shadow),
+            )
+            if (tomorrow == null) {
+                BasicText(
+                    stringResource(R.string.weather_tomorrow_pending),
+                    style = Type.HomeWeatherMeta.copy(color = detail, shadow = shadow),
+                    modifier = Modifier.padding(start = 9.dp),
+                )
+            } else {
+                GlyphIcon(
+                    glyphFor(tomorrow.kind, day = true),
+                    main,
+                    13.5.dp,
+                    Modifier.padding(start = 9.dp),
+                )
+                BasicText(
+                    stringResource(conditionName(tomorrow.kind)),
+                    style = Type.HomeWeatherMeta.copy(color = main, shadow = shadow),
+                    modifier = Modifier.padding(start = 6.dp),
+                )
+                if (tomorrow.high != null && tomorrow.low != null) {
+                    BasicText(
+                        stringResource(R.string.weather_high_low, tomorrow.high, tomorrow.low),
+                        style = Type.HomeWeatherMeta.copy(color = detail, shadow = shadow),
+                        modifier = Modifier.padding(start = 6.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
 /** The weather under the large clock, one line like the ones above it: the temperature and, dimmer,
  *  the condition, the city it is for (issue #59) and today's range. */
 @Composable
@@ -718,6 +865,18 @@ private fun weatherKeys(w: WeatherControls): (KeyEvent) -> Boolean = { event ->
         NativeKeyEvent.KEYCODE_DPAD_DOWN -> { w.onDown(); true }
         else -> false
     }
+}
+
+/** The large clock's weather focus: a see-through white card with a tile's corners. */
+private fun Modifier.weatherFocus(focused: Boolean): Modifier = if (!focused) this else drawBehind {
+    val side = 12.dp.toPx()
+    val band = 6.dp.toPx()
+    drawRoundRect(
+        color = Color.White.copy(alpha = 0.22f),
+        topLeft = Offset(-side, -band),
+        size = Size(size.width + side * 2f, size.height + band * 2f),
+        cornerRadius = CornerRadius(TileCorner.toPx()),
+    )
 }
 
 /** The focus frame behind a control, outside its bounds: nothing shifts when it takes focus. */
@@ -858,9 +1017,11 @@ private fun CornerWeather(w: WeatherNow, main: Color, shadow: Shadow) {
     }
 }
 
-private fun glyphFor(w: WeatherNow): Glyph = when (w.kind) {
-    WeatherKind.Clear -> if (w.day) Glyph.Sun else Glyph.Moon
-    WeatherKind.PartlyCloudy -> if (w.day) Glyph.CloudSun else Glyph.Cloud
+private fun glyphFor(w: WeatherNow): Glyph = glyphFor(w.kind, w.day)
+
+private fun glyphFor(kind: WeatherKind, day: Boolean): Glyph = when (kind) {
+    WeatherKind.Clear -> if (day) Glyph.Sun else Glyph.Moon
+    WeatherKind.PartlyCloudy -> if (day) Glyph.CloudSun else Glyph.Cloud
     WeatherKind.Cloudy -> Glyph.Cloud
     WeatherKind.Fog -> Glyph.CloudFog
     WeatherKind.Rain -> Glyph.CloudRain

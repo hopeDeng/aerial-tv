@@ -57,6 +57,8 @@ sealed interface Overlay {
     /** [inFolder]: the menu was opened inside that folder, and closes back to it. */
     data class AppMenu(val key: String, val anchor: Rect, val inFolder: String? = null) : Overlay
     data class Folder(val id: String) : Overlay
+    /** The bottom tile whose app is being replaced; [key] is the tile's current app. */
+    data class ReplaceApp(val key: String) : Overlay
     data object HiddenApps : Overlay
     data object Wallpaper : Overlay
     data class Pin(val mode: PinMode, val onDone: () -> Unit) : Overlay
@@ -548,6 +550,17 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
         store.unhide(key)
         arrange()
     }
+
+    /** Puts [newKey] on [slotKey]'s tile; the two swap places, so both stay on Home. */
+    fun replaceApp(slotKey: String, newKey: String) {
+        store.swap(slotKey, newKey)
+        arrange()
+        overlay = Overlay.None
+    }
+
+    /** The apps a bottom tile can be replaced with: the rest of Home, no folders or inputs. */
+    fun replaceCandidates(columns: Int): List<AppEntry> =
+        apps.drop(columns).filter { it.folder == null && it.source == null }
 
     fun startMove(key: String) {
         overlay = Overlay.None

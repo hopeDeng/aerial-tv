@@ -40,6 +40,7 @@
     <string name="input_av">AV</string>
 
     <string name="menu_move">移动</string>
+    <string name="menu_replace">替换应用</string>
     <string name="menu_to_folder">移到文件夹</string>
     <string name="menu_new_folder">新建文件夹</string>
     <string name="menu_out_of_folder">移出文件夹</string>
@@ -66,6 +67,9 @@
     <string name="hidden_title">隐藏的 App</string>
     <string name="hidden_hint">选择一个 App 放回主屏幕</string>
     <string name="hidden_empty">没有隐藏的 App</string>
+    <string name="replace_title">替换应用</string>
+    <string name="replace_hint">选择要放到这个位置的 App</string>
+    <string name="replace_empty">没有可替换的应用</string>
 
     <string name="launch_failed">无法打开%1$s</string>
     <string name="unavailable">此电视不支持</string>
@@ -219,6 +223,9 @@
     <string name="weather_snow">雪</string>
     <string name="weather_thunder">雷雨</string>
     <string name="weather_high_low">最高 %1$d°  最低 %2$d°</string>
+    <string name="weather_humidity">湿度 %1$d%%</string>
+    <string name="weather_tomorrow">明日</string>
+    <string name="weather_tomorrow_pending">明日天气待更新</string>
     <string name="st_columns">每排 App</string>
     <string name="st_columns_hint">主屏幕和文件夹里每排放几个 App。6 个一眼看到更多；4 个图标更大，离得远也看得清。</string>
     <string name="st_peek">第二排</string>

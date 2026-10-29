@@ -41,6 +41,7 @@
     <string name="input_av">AV</string>
 
     <string name="menu_move">Move</string>
+    <string name="menu_replace">Replace App</string>
     <string name="menu_to_folder">Move to Folder</string>
     <string name="menu_new_folder">New Folder</string>
     <string name="menu_out_of_folder">Move Out of Folder</string>
@@ -67,6 +68,9 @@
     <string name="hidden_title">Hidden Apps</string>
     <string name="hidden_hint">Select an app to put it back on Home</string>
     <string name="hidden_empty">No hidden apps</string>
+    <string name="replace_title">Replace App</string>
+    <string name="replace_hint">Choose the app to put in this spot</string>
+    <string name="replace_empty">No other app to put here</string>
 
     <string name="launch_failed">Couldn\'t open %1$s</string>
     <string name="unavailable">Not available on this TV</string>
@@ -220,6 +224,9 @@
     <string name="weather_snow">Snow</string>
     <string name="weather_thunder">Thunderstorms</string>
     <string name="weather_high_low">H:%1$d°  L:%2$d°</string>
+    <string name="weather_humidity">Humidity %1$d%%</string>
+    <string name="weather_tomorrow">Tomorrow</string>
+    <string name="weather_tomorrow_pending">Tomorrow\'s weather is not in yet</string>
     <string name="st_columns">Apps per Row</string>
     <string name="st_columns_hint">How many apps fit across Home, and in folders. Six shows more at a glance; four makes them larger, easier to see from across the room.</string>
     <string name="st_peek">Second Row</string>

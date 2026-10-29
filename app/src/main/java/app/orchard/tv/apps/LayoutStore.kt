@@ -169,6 +169,23 @@ class LayoutStore(context: Context) {
     fun unhide(key: String) { hidden = hidden - key; save() }
 
     /**
+     * Swaps [a] and [b] where they stand in Home's order. "Replace App" uses this: the chosen app
+     * takes the tile's place and the tile's app goes where the chosen one was, so both stay on
+     * Home and the list keeps its length.
+     */
+    fun swap(a: String, b: String) {
+        if (a == b) return
+        val list = order.toMutableList()
+        val ia = list.indexOf(a)
+        val ib = list.indexOf(b)
+        if (ia < 0 || ib < 0) return
+        list[ia] = b
+        list[ib] = a
+        order = list
+        save()
+    }
+
+    /**
      * Moves [key] onto the slot of [target] among the visible tiles, shifting the ones in between,
      * the way tvOS reflows its grid while an app is being moved.
      */

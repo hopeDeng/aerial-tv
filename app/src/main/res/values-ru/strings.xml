@@ -35,6 +35,7 @@
     <string name="input_digital">Цифровое ТВ</string>
     <string name="input_av">AV</string>
     <string name="menu_move">Переместить</string>
+    <string name="menu_replace">Заменить приложение</string>
     <string name="menu_to_folder">Переместить в папку</string>
     <string name="menu_new_folder">Новая папка</string>
     <string name="menu_out_of_folder">Убрать из папки</string>
@@ -60,6 +61,9 @@
     <string name="hidden_title">Скрытые приложения</string>
     <string name="hidden_hint">Выберите приложение, чтобы вернуть его на главный экран</string>
     <string name="hidden_empty">Нет скрытых приложений</string>
+    <string name="replace_title">Заменить приложение</string>
+    <string name="replace_hint">Выберите приложение для этого места</string>
+    <string name="replace_empty">Нет другого приложения для этого места</string>
     <string name="launch_failed">Не удалось открыть %1$s</string>
     <string name="unavailable">Недоступно на этом телевизоре</string>
     <string name="cc_brightness">Яркость</string>
@@ -212,6 +216,9 @@
     <string name="weather_snow">Снег</string>
     <string name="weather_thunder">Грозы</string>
     <string name="weather_high_low">Макс.: %1$d°  Мин.: %2$d°</string>
+    <string name="weather_humidity">Влажность %1$d%%</string>
+    <string name="weather_tomorrow">Завтра</string>
+    <string name="weather_tomorrow_pending">Погода на завтра ещё не загружена</string>
     <string name="st_columns">Приложений в ряду</string>
     <string name="st_columns_hint">Сколько приложений помещается в ряд на главном экране и в папках. Шесть — больше видно сразу; четыре — крупнее, их лучше видно издалека.</string>
     <string name="st_peek">Второй ряд</string>

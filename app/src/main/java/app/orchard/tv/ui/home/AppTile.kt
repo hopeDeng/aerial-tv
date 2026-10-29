@@ -124,7 +124,8 @@ fun Rect.asFocusedTile(): Rect {
 
 /** Half a sine wave, so a back-and-forth eases through each turn. */
 private val SineEasing = Easing { t -> (1f - cos(PI * t).toFloat()) / 2f }
-private val Corner = 12.dp
+/** The tile face's corner radius; the large clock's weather focus uses the same. */
+internal val TileCorner = 12.dp
 private const val RIM_AT_REST = 0.07f
 
 // High-contrast focus frame: a white ring this far outside the tile, as tvOS draws it.
@@ -276,7 +277,7 @@ fun AppTile(
                         compositingStrategy = CompositingStrategy.ModulateAlpha
                     },
             ) {
-                val shadow = tileShadow(size.width.roundToInt(), size.height.roundToInt(), Corner.toPx(), ShadowBlur.toPx())
+                val shadow = tileShadow(size.width.roundToInt(), size.height.roundToInt(), TileCorner.toPx(), ShadowBlur.toPx())
                 translate(-shadow.ext, -shadow.ext) { drawImage(shadow.image) }
             }
         }
@@ -294,7 +295,7 @@ fun AppTile(
                     cameraDistance = 14f * density
                     // The plain rounded rect holds the continuous outline the tile draws itself,
                     // and the hardware clips to it for free.
-                    shape = RoundedCornerShape(Corner)
+                    shape = RoundedCornerShape(TileCorner)
                     clip = true
                 }
                 .focusRequester(focusRequester)
@@ -425,10 +426,10 @@ fun AppTile(
                 // show at once instead of waiting for the faces.
                 fun face(fw: Int, fh: Int): ImageBitmap? = TileFaces.ready(art.back, fw, fh)
                     ?: if (TileFaces.background) null
-                    else TileFaces.face(art.back, fw, fh, Corner.toPx() * fw / w, 0.5.dp.toPx() * fw / w)
-                val shape = BitmapShader(smoothMask(w, h, Corner.toPx()), Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+                    else TileFaces.face(art.back, fw, fh, TileCorner.toPx() * fw / w, 0.5.dp.toPx() * fw / w)
+                val shape = BitmapShader(smoothMask(w, h, TileCorner.toPx()), Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
                     .apply { setLocalMatrix(Matrix().apply { setScale(size.width / w, size.height / h) }) }
-                val rim = tileRim(w, h, Corner.toPx(), 0.5.dp.toPx())
+                val rim = tileRim(w, h, TileCorner.toPx(), 0.5.dp.toPx())
                 onDrawBehind {
                     // Plate and logo are placed in the face's pixels; at focus the zoom undoes the scale.
                     val lifted = scale > (1f + FOCUSED_SCALE) / 2f
@@ -446,7 +447,7 @@ fun AppTile(
                             // Novatek, Android 9) showed the focused tile square-cornered as Back
                             // started the screensaver (issue #654). Only until the face is made.
                             if (!rawLogged[0] && (focused || lift > 0.01f)) { rawLogged[0] = true; DiagLog.i("tile ${app.label} drawn before its face, ${pw}x$ph") }
-                            clipPath(smoothRectPath(Rect(0f, 0f, pw.toFloat(), ph.toFloat()), Corner.toPx() * pw / size.width)) {
+                            clipPath(smoothRectPath(Rect(0f, 0f, pw.toFloat(), ph.toFloat()), TileCorner.toPx() * pw / size.width)) {
                                 drawImage(art.back, dstSize = IntSize(pw, ph), filterQuality = FilterQuality.Medium)
                             }
                         }
@@ -500,7 +501,7 @@ fun AppTile(
             ) {
                 // The frame grows out from the tile to its place: drawn at its full gap, pulled in
                 // by what the gap still lacks.
-                val frame = ringFrame(size.width.roundToInt(), size.height.roundToInt(), Corner.toPx(), RingGap.toPx(), RingWidth.toPx(), 1.dp.toPx())
+                val frame = ringFrame(size.width.roundToInt(), size.height.roundToInt(), TileCorner.toPx(), RingGap.toPx(), RingWidth.toPx(), 1.dp.toPx())
                 val e = frame.ext - RingGap.toPx() * 0.6f * (1f - ringIn)
                 translate(-e, -e) {
                     scale((size.width + 2 * e) / frame.image.width, (size.height + 2 * e) / frame.image.height, pivot = Offset.Zero) {
@@ -609,7 +610,7 @@ object TileFaces {
         val h = tileH.roundToInt()
         val fw = if (focused) focusedPx(tileW) else w
         val fh = if (focused) focusedPx(tileH) else h
-        val radius = Corner.value * density * fw / w
+        val radius = TileCorner.value * density * fw / w
         val rim = 0.5f * density * fw / w
         if (!focused) {
             val key = (w.toLong() shl 32) or h.toLong()

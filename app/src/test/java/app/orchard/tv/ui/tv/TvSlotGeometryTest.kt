@@ -4,7 +4,7 @@ import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/** The slot's two resting places, lined up with Home's glass plate, its tiles and the status pill. */
+/** The slot's two resting places, lined up with Home's tiles, its plate and the status pill. */
 class TvSlotGeometryTest {
     /** The 960x540dp canvas at the layout Home actually uses: five tiles, a plate, two rows. */
     private fun canvas(plate: Boolean = true, topRowY: Float = 299.7f) = tvSlotGeometry(
@@ -19,18 +19,18 @@ class TvSlotGeometryTest {
         plate = plate,
     )
 
-    @Test fun `the window lines up with the plate and keeps the screen aspect`() {
+    @Test fun `the window lines up with the last tile and keeps the screen aspect`() {
         val g = canvas()
-        assertEquals(930f, g.windowRight.value, 0.05f)
-        assertEquals(82f, g.windowTop.value, 0.05f)
-        assertEquals(167.7f, g.windowHeight.value, 0.05f)
-        assertEquals(298.13f, g.windowWidth.value, 0.05f)
+        assertEquals(904f, g.windowRight.value, 0.05f)
+        assertEquals(55.5f, g.windowTop.value, 0.05f)
+        assertEquals(194.2f, g.windowHeight.value, 0.05f)
+        assertEquals(345.24f, g.windowWidth.value, 0.05f)
     }
 
     @Test fun `the icon is the last tile`() {
         val g = canvas()
         assertEquals(904f, g.iconRight.value, 0.05f)
-        assertEquals(82f, g.iconTop.value, 0.05f)
+        assertEquals(55.5f, g.iconTop.value, 0.05f)
         assertEquals(147.2f, g.iconWidth.value, 0.05f)
         assertEquals(82.8f, g.iconHeight.value, 0.05f)
     }
@@ -38,7 +38,7 @@ class TvSlotGeometryTest {
     @Test fun `a taller row gives a taller window`() {
         // One-row layout: the row sits low, so the window grows between the pill and the plate.
         val g = canvas(topRowY = 407.2f)
-        assertEquals(275.2f, g.windowHeight.value, 0.05f)
+        assertEquals(301.7f, g.windowHeight.value, 0.05f)
         assertEquals(g.windowHeight.value * 960f / 540f, g.windowWidth.value, 0.05f)
     }
 

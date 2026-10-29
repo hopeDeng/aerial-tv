@@ -142,6 +142,9 @@ fun AppMenu(
     /** The folders on Home, for Move to Folder. */
     folders: List<Folder>,
     onMove: (String) -> Unit,
+    /** A bottom-row tile can be swapped for another app. */
+    showReplace: Boolean = false,
+    onReplace: (String) -> Unit = {},
     onHide: (String) -> Unit,
     onInfo: (String) -> Unit,
     onUninstall: (String) -> Unit,
@@ -234,6 +237,13 @@ fun AppMenu(
                                 MenuRow(Glyph.Folder, stringResource(R.string.menu_out_of_folder), { onOutOfFolder(shownApp.key) }, focusRequester = first)
                             } else {
                                 MenuRow(Glyph.Move, stringResource(R.string.menu_move), { onMove(shownApp.key) }, focusRequester = first)
+                            }
+                            if (showReplace) {
+                                MenuRow(
+                                    Glyph.Switches,
+                                    stringResource(R.string.menu_replace),
+                                    { onReplace(shownApp.key) },
+                                )
                             }
                             MenuRow(Glyph.Folder, stringResource(R.string.menu_to_folder), { page = MenuPage.Folders }, trailing = "›")
                             if (shownApp.source != null) {
@@ -336,6 +346,43 @@ fun HiddenAppsSheet(
     onUnhide: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    AppPickerSheet(
+        visible = visible,
+        title = stringResource(R.string.hidden_title),
+        hint = stringResource(if (apps.isEmpty()) R.string.hidden_empty else R.string.hidden_hint),
+        apps = apps,
+        onPick = { onUnhide(it.key) },
+        onDismiss = onDismiss,
+    )
+}
+
+/** The app to put on a bottom tile, in the same list Hidden Apps uses. */
+@Composable
+fun ReplaceAppSheet(
+    visible: Boolean,
+    apps: List<AppEntry>,
+    onPick: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AppPickerSheet(
+        visible = visible,
+        title = stringResource(R.string.replace_title),
+        hint = stringResource(if (apps.isEmpty()) R.string.replace_empty else R.string.replace_hint),
+        apps = apps,
+        onPick = { onPick(it.key) },
+        onDismiss = onDismiss,
+    )
+}
+
+@Composable
+private fun AppPickerSheet(
+    visible: Boolean,
+    title: String,
+    hint: String,
+    apps: List<AppEntry>,
+    onPick: (AppEntry) -> Unit,
+    onDismiss: () -> Unit,
+) {
     val first = remember { FocusRequester() }
     BackHandler(enabled = visible, onBack = onDismiss)
     LaunchedEffect(visible, apps.size) {
@@ -360,9 +407,9 @@ fun HiddenAppsSheet(
                     .liquidGlass(28.dp)
                     .padding(28.dp),
             ) {
-                BasicText(stringResource(R.string.hidden_title), style = Type.LargeTitle)
+                BasicText(title, style = Type.LargeTitle)
                 BasicText(
-                    stringResource(if (apps.isEmpty()) R.string.hidden_empty else R.string.hidden_hint),
+                    hint,
                     style = Type.Callout, modifier = Modifier.padding(top = 4.dp, bottom = 20.dp),
                 )
                 // Focus moving to a row out of view scrolls it in (Compose brings focused items into view).
@@ -373,27 +420,27 @@ fun HiddenAppsSheet(
                         // Room for the focused tile's 1.1x scale, so the edge rows are not clipped.
                         .padding(horizontal = 8.dp, vertical = 8.dp),
                 ) {
-                apps.chunked(4).forEachIndexed { r, row ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(20.dp), modifier = Modifier.padding(bottom = 18.dp)) {
-                        row.forEachIndexed { c, app ->
-                            Pressable(
-                                onClick = { onUnhide(app.key) },
-                                focusRequester = if (r == 0 && c == 0) first else null,
-                                focusedScale = 1.1f,
-                            ) { state ->
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    MiniTile(app, state.focused, Modifier.size(132.dp, 74.dp))
-                                    Spacer(Modifier.height(8.dp))
-                                    BasicText(
-                                        app.label, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                        style = Type.Caption.copy(color = if (state.focused) Palette.Label else Palette.SecondaryLabel),
-                                        modifier = Modifier.width(132.dp),
-                                    )
+                    apps.chunked(4).forEachIndexed { r, row ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(20.dp), modifier = Modifier.padding(bottom = 18.dp)) {
+                            row.forEachIndexed { c, app ->
+                                Pressable(
+                                    onClick = { onPick(app) },
+                                    focusRequester = if (r == 0 && c == 0) first else null,
+                                    focusedScale = 1.1f,
+                                ) { state ->
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        MiniTile(app, state.focused, Modifier.size(132.dp, 74.dp))
+                                        Spacer(Modifier.height(8.dp))
+                                        BasicText(
+                                            app.label, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                            style = Type.Caption.copy(color = if (state.focused) Palette.Label else Palette.SecondaryLabel),
+                                            modifier = Modifier.width(132.dp),
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
-                }
                 }
             }
         }

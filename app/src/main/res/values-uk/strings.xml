@@ -35,6 +35,7 @@
     <string name="input_digital">Цифрове ТБ</string>
     <string name="input_av">AV</string>
     <string name="menu_move">Перемістити</string>
+    <string name="menu_replace">Замінити застосунок</string>
     <string name="menu_to_folder">Перемістити до папки</string>
     <string name="menu_new_folder">Нова папка</string>
     <string name="menu_out_of_folder">Прибрати з папки</string>
@@ -60,6 +61,9 @@
     <string name="hidden_title">Приховані застосунки</string>
     <string name="hidden_hint">Виберіть застосунок, щоб повернути його на головний екран</string>
     <string name="hidden_empty">Немає прихованих застосунків</string>
+    <string name="replace_title">Замінити застосунок</string>
+    <string name="replace_hint">Виберіть застосунок для цього місця</string>
+    <string name="replace_empty">Немає іншого застосунку для цього місця</string>
     <string name="launch_failed">Не вдалося відкрити %1$s</string>
     <string name="unavailable">Недоступно на цьому телевізорі</string>
     <string name="cc_brightness">Яскравість</string>
@@ -212,6 +216,9 @@
     <string name="weather_snow">Сніг</string>
     <string name="weather_thunder">Грози</string>
     <string name="weather_high_low">Макс.: %1$d°  Мін.: %2$d°</string>
+    <string name="weather_humidity">Вологість %1$d%%</string>
+    <string name="weather_tomorrow">Завтра</string>
+    <string name="weather_tomorrow_pending">Погода на завтра ще не завантажена</string>
     <string name="st_columns">Програм у ряду</string>
     <string name="st_columns_hint">Скільки програм уміщується в ряд на головному екрані й у папках. Шість — більше видно одразу; чотири — більші, їх краще видно здалеку.</string>
     <string name="st_peek">Другий ряд</string>

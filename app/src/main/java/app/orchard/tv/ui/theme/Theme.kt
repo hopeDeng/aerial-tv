@@ -90,6 +90,27 @@ object Type {
         fontFamily = InterText, fontWeight = FontWeight.W600,
         fontSize = 16.sp, color = Palette.Label,
     )
+    /** Home's large clock after arclauncher: a light time over the date and a weather block. */
+    val HomeClock = TextStyle(
+        fontFamily = InterDisplay, fontWeight = FontWeight.W300,
+        fontSize = 84.sp, letterSpacing = (-0.01).em, color = Palette.Label,
+    )
+    val HomeWeatherTemp = TextStyle(
+        fontFamily = InterText, fontWeight = FontWeight.W500,
+        fontSize = 22.5.sp, color = Palette.Label,
+    )
+    val HomeWeatherDetail = TextStyle(
+        fontFamily = InterText, fontWeight = FontWeight.W500,
+        fontSize = 15.sp, color = Palette.Label,
+    )
+    val HomeWeatherMeta = TextStyle(
+        fontFamily = InterText, fontWeight = FontWeight.W500,
+        fontSize = 11.25.sp, color = Palette.Label,
+    )
+    val HomeWeatherPill = TextStyle(
+        fontFamily = InterText, fontWeight = FontWeight.W500,
+        fontSize = 9.75.sp, color = Palette.Label,
+    )
     /**
      * The smaller clocks (Home's small clock, Control Center, the screensaver). Display cuts and
      * negative tracking made their digits run together at these sizes (#494), so they take the

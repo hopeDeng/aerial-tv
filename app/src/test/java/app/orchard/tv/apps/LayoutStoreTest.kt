@@ -69,6 +69,30 @@ class LayoutStoreTest {
         assertEquals(listOf("test.a", "test.b", "test.c", "test.d"), s.home())
     }
 
+    @Test fun swapExchangesTwoAppsAndLeavesTheRest() {
+        val s = store()
+        s.swap("test.a", "test.d")
+        assertEquals(listOf("test.d", "test.b", "test.c", "test.a"), s.home())
+    }
+
+    @Test fun swapKeepsFoldersAndHiddenAppsInPlace() {
+        val s = store()
+        val id = s.putInFolder("test.b", null, "Kids")
+        s.hide("test.c")
+        s.swap("test.a", "test.d")
+        assertEquals(listOf("test.d", FOLDER_KEY_PREFIX + id, "test.a"), s.home())
+        s.unhide("test.c")
+        assertEquals(listOf("test.d", FOLDER_KEY_PREFIX + id, "test.c", "test.a"), s.home())
+    }
+
+    @Test fun swapOntoItselfOrAnUnknownAppChangesNothing() {
+        val s = store()
+        s.swap("test.b", "test.b")
+        s.swap("test.b", "test.missing")
+        s.swap("test.missing", "test.b")
+        assertEquals(listOf("test.a", "test.b", "test.c", "test.d"), s.home())
+    }
+
     @Test fun theOrderOutlivesTheStore() {
         store().move("test.d", "test.a")
         assertEquals(listOf("test.d", "test.a", "test.b", "test.c"), LayoutStore(context).home())

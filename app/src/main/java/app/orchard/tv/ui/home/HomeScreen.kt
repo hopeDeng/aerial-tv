@@ -80,6 +80,7 @@ import app.orchard.tv.ui.wallpaper.WallpaperSheet
 import app.orchard.tv.tv.TvController
 import app.orchard.tv.ui.tv.TvWindow
 import app.orchard.tv.ui.tv.tvSlotGeometry
+import app.orchard.tv.ui.tv.tvSlotTop
 import app.orchard.tv.weather.Weather
 import app.orchard.tv.wallpaper.AerialFormats
 import app.orchard.tv.wallpaper.ScreensaverMode
@@ -120,20 +121,11 @@ private val ShelfRowGap = 30.dp
  */
 private val RowNameRoom = 50.dp
 
-/** Where the large clock's date sits: just under the status pill. */
-private val LargeClockTop = 80.dp
-
 /**
- * From the large clock's top to where the shelf may start: its weather line ends some 136 dp down
- * (216 dp from the top, MiTV-MFTR0, 1.65), and a gap.
+ * From the large clock's top to where the shelf may start: the time, the date line, the weather
+ * block and its tomorrow line end some 190 dp down, with a little room so rows never press on it.
  */
-private val LargeClockHeight = 152.dp
-
-/**
- * The highest the large clock may go to make room for two rows, level with the status pill. Only
- * at the left: at the right it would run into the pill.
- */
-private val LargeClockTopMin = 28.dp
+private val LargeClockHeight = 190.dp
 
 /** How much taller the glass plate grows to hold the top row's names, with the second row kept clear of it. */
 private val PlateNameRoom = 28.dp
@@ -162,7 +154,7 @@ internal fun gridGap(columns: Int): Dp = when (columns) {
 internal fun restTileWidth(screenW: Dp, columns: Int): Dp = (screenW - GridMargin * 2 - gridGap(columns) * (columns - 1)) / columns
 
 /** Grid geometry for the screen at hand. On a 1080p TV this is a 960×540 dp canvas. */
-private class GridMetrics(screenW: Dp, screenH: Dp, val columns: Int, oneRow: Boolean, plateNames: Boolean, peek: Boolean, plate: Boolean, largeClock: Boolean, clockRight: Boolean) {
+private class GridMetrics(screenW: Dp, screenH: Dp, val columns: Int, oneRow: Boolean, plateNames: Boolean, peek: Boolean, plate: Boolean, largeClock: Boolean) {
     val margin = GridMargin
     val gap = gridGap(columns)
     val tileW = restTileWidth(screenW, columns)
@@ -190,15 +182,11 @@ private class GridMetrics(screenW: Dp, screenH: Dp, val columns: Int, oneRow: Bo
     private val twoRowFit = screenH - (if (plate) PlateMarginBottom + PlatePadV + firstGap else RowNameRoom) - shelfSecond - tileH
 
     /**
-     * Top of the large clock: just under the status pill, left or right, in both layouts, as on the
-     * lock screen. Hung from the row it floated mid-screen in one-row mode and pressed on the plate
-     * in two-row mode; up here the middle of the screen stays the wallpaper's. This is the date's
-     * cap top: the clock's lines are boxed to their capitals. Two rows that do not fit under it
-     * (four a row with every name) take it up beside the pill, at the left.
+     * Top of the large clock: the live window's top, so the two read as one band across the screen.
+     * This is the time's cap top: the clock's lines are boxed to their capitals.
      */
-    val clockY = if (oneRow || !largeClock) LargeClockTop else
-        (twoRowFit - (if (plate) PlatePadV else 0.dp) - LargeClockHeight)
-            .coerceIn(if (clockRight) LargeClockTop else LargeClockTopMin, LargeClockTop)
+    val clockY = if (!largeClock) 0.dp else
+        tvSlotTop(screenW, margin, pitchX, tileW, columns, plate)
 
     /** The highest two rows may start: under the large clock's weather line. What does not fit lifts in on the second row ([shelfLift]). */
     private val twoRowFloor = if (largeClock) clockY + LargeClockHeight + if (plate) PlatePadV else 0.dp else 0.dp
@@ -584,9 +572,8 @@ fun HomeScreen(
         val peek = AerialSettings.peekNextRow
         val hasPlate = AerialSettings.homePlate
         val largeClock = AerialSettings.largeClock
-        val clockRightNow = AerialSettings.clockRight
-        val metrics = remember(maxWidth, maxHeight, columns, oneRow, plateNames, peek, hasPlate, largeClock, clockRightNow) {
-            GridMetrics(maxWidth, maxHeight, columns, oneRow, plateNames, peek, hasPlate, largeClock, clockRightNow)
+        val metrics = remember(maxWidth, maxHeight, columns, oneRow, plateNames, peek, hasPlate, largeClock) {
+            GridMetrics(maxWidth, maxHeight, columns, oneRow, plateNames, peek, hasPlate, largeClock)
         }
         val collapsePx = with(density) { metrics.collapse.toPx() }
 
@@ -773,7 +760,7 @@ fun HomeScreen(
                     // The live window takes the top right band where the large clock would stand; the
                     // small clock sits above it, beside the pill, out of its way.
                     val atEnd = clockRight && !slotShown
-                    ShelfClock(
+                    HomeShelfClock(
                         now = now,
                         alignEnd = atEnd,
                         weather = weatherControls,
@@ -1051,12 +1038,17 @@ fun HomeScreen(
         val menu = overlay as? Overlay.AppMenu
         // A menu opened in a folder closes back to the folder.
         fun closeMenu() { vm.overlay = menu?.inFolder?.let { Overlay.Folder(it) } ?: Overlay.None }
+        val menuApp = menu?.let { vm.entry(it.key) }
+        val menuIndex = menu?.let { m -> apps.indexOfFirst { it.key == m.key } } ?: -1
         AppMenu(
-            app = menu?.let { vm.entry(it.key) },
+            app = menuApp,
             anchor = menu?.anchor,
             inFolder = menu?.inFolder != null,
             folders = vm.folders(),
             onMove = { vm.startMove(it) },
+            showReplace = menu?.inFolder == null && menuApp != null &&
+                menuApp.folder == null && menuApp.source == null && menuIndex in 0 until columns,
+            onReplace = { key -> vm.overlay = Overlay.ReplaceApp(key) },
             onHide = { key ->
                 closeMenu()
                 vm.hide(key)
@@ -1114,6 +1106,19 @@ fun HomeScreen(
             },
             // Hidden apps are reached from Personalization, and Back returns there.
             onDismiss = { vm.overlay = Overlay.Wallpaper },
+        )
+
+        val replacing = overlay as? Overlay.ReplaceApp
+        ReplaceAppSheet(
+            visible = replacing != null,
+            apps = replacing?.let { vm.replaceCandidates(columns) }.orEmpty(),
+            onPick = { newKey ->
+                val slotKey = replacing?.key ?: return@ReplaceAppSheet
+                indexAfterOverlay = apps.indexOfFirst { it.key == slotKey }
+                focusAfterOverlay = newKey
+                vm.replaceApp(slotKey, newKey)
+            },
+            onDismiss = { vm.overlay = Overlay.None },
         )
 
         WallpaperSheet(

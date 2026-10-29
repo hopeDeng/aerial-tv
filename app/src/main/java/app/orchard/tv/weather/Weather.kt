@@ -23,8 +23,22 @@ import kotlin.math.roundToInt
 
 enum class WeatherKind { Clear, PartlyCloudy, Cloudy, Fog, Rain, Snow, Thunder }
 
-/** [high] and [low] are today's, shown under the large clock; null in a reading saved by an older version. */
-data class WeatherNow(val celsius: Int, val kind: WeatherKind, val day: Boolean, val high: Int? = null, val low: Int? = null)
+/** Tomorrow's condition and range; null in a reading saved by an older version. */
+data class TomorrowWeather(val kind: WeatherKind, val high: Int?, val low: Int?)
+
+/**
+ * [high] and [low] are today's; [humidity] and [tomorrow] join them for the arclauncher-style
+ * weather block. All but the first three are null in a reading saved by an older version.
+ */
+data class WeatherNow(
+    val celsius: Int,
+    val kind: WeatherKind,
+    val day: Boolean,
+    val high: Int? = null,
+    val low: Int? = null,
+    val humidity: Int? = null,
+    val tomorrow: TomorrowWeather? = null,
+)
 
 /**
  * The weather beside the home clock, from Open-Meteo: no key, reachable from China. The place is
@@ -70,10 +84,21 @@ object Weather {
         chosen = prefs.getBoolean("chosen", false)
         if (System.currentTimeMillis() - prefs.getLong("fetched_at", 0) < STALE_MS) {
             val kind = runCatching { WeatherKind.valueOf(prefs.getString("kind", null) ?: "") }.getOrNull()
+            val tomorrowKind = runCatching {
+                WeatherKind.valueOf(prefs.getString("tomorrow_kind", null) ?: "")
+            }.getOrNull()
             if (kind != null) now = WeatherNow(
                 prefs.getInt("celsius", 0), kind, prefs.getBoolean("day", true),
                 high = prefs.getInt("high", NONE).takeIf { it != NONE },
                 low = prefs.getInt("low", NONE).takeIf { it != NONE },
+                humidity = prefs.getInt("humidity", NONE).takeIf { it != NONE },
+                tomorrow = tomorrowKind?.let {
+                    TomorrowWeather(
+                        it,
+                        prefs.getInt("tomorrow_high", NONE).takeIf { h -> h != NONE },
+                        prefs.getInt("tomorrow_low", NONE).takeIf { l -> l != NONE },
+                    )
+                },
             )
         }
     }
@@ -105,6 +130,17 @@ object Weather {
                     putBoolean("day", reading.day)
                     putInt("high", reading.high ?: NONE)
                     putInt("low", reading.low ?: NONE)
+                    putInt("humidity", reading.humidity ?: NONE)
+                    val tomorrow = reading.tomorrow
+                    if (tomorrow == null) {
+                        remove("tomorrow_kind")
+                        remove("tomorrow_high")
+                        remove("tomorrow_low")
+                    } else {
+                        putString("tomorrow_kind", tomorrow.kind.name)
+                        putInt("tomorrow_high", tomorrow.high ?: NONE)
+                        putInt("tomorrow_low", tomorrow.low ?: NONE)
+                    }
                 }
             }
         }
@@ -134,16 +170,36 @@ object Weather {
                 putLong("located_at", System.currentTimeMillis())
             }
         }
-        val json = JSONObject(get("https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon&current=temperature_2m,weather_code,is_day&daily=temperature_2m_max,temperature_2m_min&forecast_days=1&timezone=auto"))
+        // weather_code is for today and tomorrow: the arclauncher-style block shows tomorrow too.
+        val json = JSONObject(
+            get(
+                "https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon" +
+                    "&current=temperature_2m,weather_code,is_day,relative_humidity_2m" +
+                    "&daily=weather_code,temperature_2m_max,temperature_2m_min" +
+                    "&forecast_days=2&timezone=auto",
+            ),
+        )
+        return weatherFrom(json)
+    }
+
+    /** Off the main thread, and with no Android calls, so it is unit tested as a plain function. */
+    internal fun weatherFrom(json: JSONObject): WeatherNow {
         val current = json.getJSONObject("current")
         val daily = json.optJSONObject("daily")
-        fun today(key: String) = daily?.optJSONArray(key)?.optDouble(0)?.takeIf { !it.isNaN() }?.roundToInt()
+        fun day(key: String, index: Int) =
+            daily?.optJSONArray(key)?.optDouble(index)?.takeIf { !it.isNaN() }?.roundToInt()
+        val tomorrowCode = daily?.optJSONArray("weather_code")?.optInt(1, -1)?.takeIf { it >= 0 }
         return WeatherNow(
             celsius = current.getDouble("temperature_2m").roundToInt(),
             kind = kindOf(current.getInt("weather_code")),
             day = current.optInt("is_day", 1) == 1,
-            high = today("temperature_2m_max"),
-            low = today("temperature_2m_min"),
+            high = day("temperature_2m_max", 0),
+            low = day("temperature_2m_min", 0),
+            humidity = current.optDouble("relative_humidity_2m", Double.NaN)
+                .takeIf { !it.isNaN() }?.roundToInt(),
+            tomorrow = tomorrowCode?.let {
+                TomorrowWeather(kindOf(it), day("temperature_2m_max", 1), day("temperature_2m_min", 1))
+            },
         )
     }
 
