@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
@@ -70,6 +71,7 @@ fun Pressable(
     enabled: Boolean = true,
     focusRequester: FocusRequester? = null,
     focusedScale: Float = 1.06f,
+    transformOrigin: TransformOrigin = TransformOrigin.Center,
     onKey: ((KeyEvent) -> Boolean)? = null,
     content: @Composable BoxScope.(PressState) -> Unit,
 ) {
@@ -142,6 +144,10 @@ fun Pressable(
             // After the focusable: the bounds a scroll container brings into view are then the
             // card's own, not the 8% larger ones of the focus animation, which made a sheet or
             // list shift a few pixels with every move of focus and settle back.
-            .graphicsLayer { scaleX = scale; scaleY = scale },
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+                this.transformOrigin = transformOrigin
+            },
     ) { content(state) }
 }

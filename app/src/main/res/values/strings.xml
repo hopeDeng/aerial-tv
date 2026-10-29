@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Aerial</string>
+    <string name="app_name" translatable="false">Aerial</string>
     <string name="guard_name">Aerial Home Guard</string>
     <string name="guard_description">Keeps Aerial as your home screen on TVs that do not let you change it. Reads no screen content.</string>
 
@@ -243,4 +243,48 @@
     <string name="st_play_hint">When still: after 10 seconds on the top row; a key stops it. Always: keys do not stop it, and it is shaded a little; it stops when you go down to the apps.</string>
     <string name="ss_show_time">Time</string>
     <string name="ss_show_time_hint">The time over the aerial and photo screensavers. The time and place name move a little now and then, so nothing stays on the same pixels.</string>
+    <string name="tv_no_source">No channels</string>
+    <string name="tv_loading">Loading…</string>
+    <string name="tv_epg_loading">%1$s  Loading guide…</string>
+    <string name="tv_epg_none">%1$s  No guide for this channel</string>
+    <string name="tv_epg_failed">%1$s  Could not load the guide</string>
+    <string name="tv_epg_on_air">%1$s  Now: %2$s  ·  %3$d min left</string>
+    <string name="tv_epg_off_air">%1$s  No programme now</string>
+    <string name="tv_channel_list">Channels</string>
+    <string name="tv_channel_list_n">Channels (%1$d)</string>
+    <string name="tv_channel_disabled">Disabled</string>
+    <string name="tv_source_list_n">%1$s · %2$d sources</string>
+    <string name="tv_source_current">Now</string>
+    <string name="tv_epg">EPG</string>
+    <string name="tv_no_epg">No EPG</string>
+    <string name="tv_preview_hint">OK: Fullscreen</string>
+    <string name="tv_fullscreen_hint">←→ Change · Up Phone · Down Sources · OK List · Menu/Guide EPG · Back Exit</string>
+    <string name="tv_manage_title">Channels from your phone</string>
+    <string name="tv_manage_body">Scan the code, or open the address on a phone or computer on the same Wi-Fi.</string>
+    <string name="tv_manage_starting">Starting…</string>
+    <string name="tv_manage_offline">No network. Connect the TV to Wi-Fi, then reopen this panel.</string>
+    <string name="tv_manage_close">UP or Back: close</string>
+    <string name="tv_all_sources_failed">All sources failed</string>
+    <string name="tv_city_pick">Select city</string>
+    <string name="tv_city_province">Province</string>
+    <string name="tv_city_current">Current: %1$s</string>
+
+    <string name="tv_quality_current">Current source</string>
+    <string name="tv_quality_waiting">Not tested</string>
+    <string name="tv_quality_testing">Testing…</string>
+    <string name="tv_quality_speed">Speed</string>
+    <string name="tv_quality_bitrate">Bitrate</string>
+    <string name="tv_quality_resolution">Resolution</string>
+    <string name="tv_quality_fps">Frame rate</string>
+    <string name="tv_playback_idle">Idle</string>
+    <string name="tv_playback_buffering">Buffering</string>
+    <string name="tv_playback_playing">Playing</string>
+    <string name="tv_playback_paused">Paused</string>
+    <string name="tv_playback_error">Playback failed</string>
+    <string name="tv_verdict_hd">HD smooth</string>
+    <string name="tv_verdict_smooth">Smooth</string>
+    <string name="tv_verdict_slow">Slow</string>
+    <string name="tv_verdict_unusable">Too slow</string>
+    <string name="tv_verdict_failed">Unreachable</string>
+    <string name="tv_verdict_encrypted">Encrypted</string>
 </resources>

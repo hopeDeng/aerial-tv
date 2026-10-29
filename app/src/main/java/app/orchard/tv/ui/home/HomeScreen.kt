@@ -76,6 +76,10 @@ import app.orchard.tv.settings.AerialSettings
 import app.orchard.tv.apps.AppEntry
 import app.orchard.tv.ui.control.ControlCenter
 import app.orchard.tv.ui.wallpaper.WallpaperSheet
+import app.orchard.tv.tv.TvController
+import app.orchard.tv.ui.tv.TvWindow
+import app.orchard.tv.ui.tv.tvSlotGeometry
+import app.orchard.tv.weather.Weather
 import app.orchard.tv.wallpaper.ScreensaverMode
 import app.orchard.tv.wallpaper.Wallpapers
 import app.orchard.tv.ui.components.liquidGlass
@@ -156,6 +160,7 @@ private class GridMetrics(screenW: Dp, screenH: Dp, oneRow: Boolean, plateNames:
 
     /** Where a row rests once you go down into the grid: the row above stays in view. */
     val restY = screenH * 0.37f
+    val screenW = screenW
     val screenH = screenH
 
     fun slot(index: Int, onTop: Boolean): Pair<Dp, Dp> {
@@ -183,6 +188,7 @@ private const val HOME_SHOT_EVERY_MS = 30_000L
 @Composable
 fun HomeScreen(
     vm: HomeViewModel,
+    tv: TvController,
     onLaunch: (AppEntry, Rect?) -> Unit,
     onOpen: (Intent) -> Unit,
     onAppInfo: (String) -> Unit,
@@ -200,6 +206,8 @@ fun HomeScreen(
     val requesters = remember { HashMap<String, FocusRequester>() }
     fun requester(key: String) = requesters.getOrPut(key) { FocusRequester() }
     val pillRequester = remember { FocusRequester() }
+    val windowRequester = remember { FocusRequester() }
+    val weatherRequester = remember { FocusRequester() }
     val appContext = LocalContext.current
     val firmwareInputPanel = remember {
         SystemProbe.tclInputPanel(appContext) != null || SystemProbe.coocaaInputPanel(appContext)
@@ -215,6 +223,17 @@ fun HomeScreen(
     val focusedIndex = apps.indexOfFirst { it.key == focusedKey }
     val focusedRow = if (pillFocused || focusedIndex < 0) 0 else focusedIndex / COLUMNS
     val gridEnabled = overlay == Overlay.None
+    // The live slot and the weather line are Home's own controls: they take focus only while nothing
+    // is over Home. The slot's own panels are the exception, since live TV keeps playing under them.
+    val onHome = gridEnabled && moving == null && !vm.screensaverVisible && !tv.channelListOpen &&
+        !tv.channelGridOpen && !tv.epgOpen && !tv.sourceListOpen && !tv.cityPickerOpen && !tv.managerOpen
+    // The top row's right-most tile: up from it leads to the live slot, and back down from the slot.
+    val topRowEnd = minOf(COLUMNS, apps.size) - 1
+    // The window shows while Home does: the screensaver covers the whole screen, and fullscreen has
+    // its own page. Both leave the clock alone.
+    val slotShown = !vm.screensaverVisible
+    // The glass plate under the top row decides which edge the live window lines its right side up with.
+    val plateShown = apps.isNotEmpty() && AerialSettings.homePlate
 
     // The aerial wallpaper's film, and how far it shows through.
     val filmCover = remember { Animatable(0f) }
@@ -306,13 +325,38 @@ fun HomeScreen(
         runCatching { requester(app.key).requestFocus() }
     }
 
-    // First focus once the apps are in; afterwards, put focus back wherever it was when an overlay closes.
-    LaunchedEffect(vm.loaded, overlay) {
+    // The weather line is a control while Home itself has focus: it opens the city picker, and it is
+    // where the live slot leads on Left.
+    val weatherControls = if (onHome && AerialSettings.showWeather && Weather.now != null) WeatherControls(
+        focusRequester = weatherRequester,
+        onClick = { tv.openCityPicker() },
+        onUp = { runCatching { pillRequester.requestFocus() } },
+        onRight = { runCatching { windowRequester.requestFocus() } },
+        onDown = { focusApp(0) },
+    ) else null
+
+    // First focus once the apps are in; afterwards, put focus back wherever it was when an overlay
+    // closes. The very first time Home is whole, the live slot takes that focus instead, once: the
+    // day's TV comes up by itself. Coming back from an app, waking the screensaver or scrolling back
+    // to the top row all hand focus to a tile, as before.
+    var bootFocusGiven by remember { mutableStateOf(false) }
+    LaunchedEffect(vm.loaded, overlay, tv.loaded) {
         if (!vm.loaded || overlay != Overlay.None) return@LaunchedEffect
+        // TvSources.load never throws, so this wait is only the file and asset read.
+        if (!bootFocusGiven && slotShown && !tv.loaded) return@LaunchedEffect
         withFrameNanos { }
         val wanted = focusAfterOverlay
         focusAfterOverlay = null
         if (wanted != null) { focusedKey = wanted; pillFocused = false }
+        if (!bootFocusGiven) {
+            bootFocusGiven = true
+            DiagLog.i("boot focus: slot=$slotShown playable=${tv.current != null} wanted=${wanted != null}")
+            if (wanted == null && slotShown && tv.current != null) {
+                runCatching { windowRequester.requestFocus() }
+                    .onFailure { DiagLog.i("boot focus failed: $it") }
+                return@LaunchedEffect
+            }
+        }
         val index = apps.indexOfFirst { it.key == focusedKey }
         // A tile that went while the overlay was up (hidden, put in a folder, a folder ungrouped)
         // leaves focus where it was.
@@ -347,6 +391,22 @@ fun HomeScreen(
             focusApp(0)
             vm.homeResetPending = false
         }
+    }
+    // The slot let go of the screen: Back out of fullscreen. Home takes the focus onto the tile the
+    // slot's own Up/Down leads to, so the remote never lands on nothing.
+    LaunchedEffect(tv.releaseFocus) {
+        if (tv.releaseFocus == 0 || !onHome) return@LaunchedEffect
+        withFrameNanos { }
+        focusApp(topRowEnd)
+    }
+    // The city picker was opened from the weather line: closing it goes back there, not to a tile.
+    var cityWasOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(tv.cityPickerOpen) {
+        if (cityWasOpen && !tv.cityPickerOpen && onHome) {
+            withFrameNanos { }
+            runCatching { weatherRequester.requestFocus() }
+        }
+        cityWasOpen = tv.cityPickerOpen
     }
 
     BackHandler(enabled = overlay == Overlay.None && moving == null) {
@@ -423,6 +483,8 @@ fun HomeScreen(
         val maxScroll = with(density) { metrics.scrollFor(rows - 1, rows).toPx() }.coerceAtLeast(0f)
         LaunchedEffect(maxScroll) { scroll.updateBounds(0f, maxScroll) }
         val pastShelf by remember(collapsePx) { derivedStateOf { scroll.value > collapsePx / 2 } }
+        // The slot rides the same scroll and is off the canvas past the shelf: live TV stops with it.
+        LaunchedEffect(pastShelf) { tv.onHomeScrolled(pastShelf) }
         val decay = rememberSplineBasedDecay<Float>()
         LaunchedEffect(target, dragged) {
             if (dragged) return@LaunchedEffect
@@ -498,7 +560,7 @@ fun HomeScreen(
         ) {
             // The glass plate under the top row (tvOS 26), the row's full width however few apps
             // there are, which sit at its left: sized to three apps it read as a stray panel (#284).
-            val plate = if (apps.isEmpty() || !AerialSettings.homePlate) null else with(density) {
+            val plate = if (!plateShown) null else with(density) {
                 Rect(
                     (metrics.margin - PlatePadH).toPx(),
                     (metrics.topRowY - PlatePadV).toPx(),
@@ -507,14 +569,15 @@ fun HomeScreen(
                 )
             }
             // A moving wallpaper's film, under everything; it moves only on the top row with
-            // nothing over it, and there only once Home is still unless set to keep moving.
+            // nothing over it, and there only once Home is still unless set to keep moving. Live TV
+            // holds the decoder too: while the window plays, the wallpaper's film stays on its frame.
             val filmMoves = vm.resumed && overlay == Overlay.None && !vm.screensaverVisible && !pastShelf &&
-                focusedRow == 0 && moving == null
+                focusedRow == 0 && moving == null && !tv.active
             val sourceInput = Wallpapers.sourceInput
             when {
                 Wallpapers.selectedId == Wallpapers.LIVE -> LiveWallpaper(
                     moving = filmMoves,
-                    keep = vm.resumed && (!vm.screensaverVisible || filmSaver),
+                    keep = vm.resumed && (!vm.screensaverVisible || filmSaver) && !tv.active,
                     lastInputAt = vm.lastInputAt,
                     cover = filmCover,
                     hold = filmSaver && vm.resumed,
@@ -523,7 +586,7 @@ fun HomeScreen(
                 )
                 Wallpapers.selectedId == Wallpapers.VIDEOS -> VideoWallpaper(
                     moving = filmMoves,
-                    keep = vm.resumed && !vm.screensaverVisible,
+                    keep = vm.resumed && !vm.screensaverVisible && !tv.active,
                     lastInputAt = vm.lastInputAt,
                     cover = filmCover,
                 )
@@ -569,11 +632,15 @@ fun HomeScreen(
                 // The large clock stands over the top row; the small one is the time and weather in
                 // one line, top left or beside the pill, so the wallpaper keeps the screen.
                 if (AerialSettings.largeClock) {
+                    // The live window takes the top right band where the large clock would stand; the
+                    // small clock sits above it, beside the pill, out of its way.
+                    val atEnd = clockRight && !slotShown
                     ShelfClock(
                         now = now,
-                        alignEnd = clockRight,
+                        alignEnd = atEnd,
+                        weather = weatherControls,
                         modifier = Modifier
-                            .align(if (clockRight) Alignment.TopEnd else Alignment.TopStart)
+                            .align(if (atEnd) Alignment.TopEnd else Alignment.TopStart)
                             .padding(horizontal = metrics.margin)
                             .padding(top = metrics.clockY)
                             .graphicsLayer { alpha = 1f - (scroll.value / collapsePx * 1.6f).coerceIn(0f, 1f) },
@@ -583,6 +650,7 @@ fun HomeScreen(
                 } else if (!clockRight) {
                     CornerClock(
                         now = now,
+                        weather = weatherControls,
                         modifier = Modifier
                             .padding(start = metrics.margin, top = 28.dp)
                             .graphicsLayer { alpha = 1f - (scroll.value / collapsePx * 1.6f).coerceIn(0f, 1f) },
@@ -661,6 +729,10 @@ fun HomeScreen(
                                     }
                                 },
                             rowEnd = index % COLUMNS == COLUMNS - 1 || index == apps.lastIndex,
+                            // Up from the top row's right-most tile leads to the live slot, and the
+                            // slot's own Down comes back to it: the tile asks for the slot directly,
+                            // so focus never has to be guessed from what Home remembers.
+                            upTarget = if (index == topRowEnd && slotShown && onHome) windowRequester else null,
                             // On the glass plate only with every name shown (an earlier build showed
                             // the focused one alone there, but it sat oddly on the glass).
                             showName = plate == null || index >= COLUMNS || plateNames,
@@ -690,13 +762,14 @@ fun HomeScreen(
         Row(
             Modifier
                 .align(Alignment.TopEnd)
-                .padding(top = 28.dp, end = metrics.margin - 14.dp)
+                .padding(top = PillTop, end = metrics.margin - 14.dp)
                 .graphicsLayer { alpha = if (overlay is Overlay.ControlCenter) 0f else 1f },
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (!AerialSettings.largeClock && AerialSettings.clockRight) {
                 CornerClock(
                     now = now,
+                    weather = weatherControls,
                     modifier = Modifier
                         .padding(end = 14.dp)
                         .graphicsLayer { alpha = 1f - (scroll.value / collapsePx * 1.6f).coerceIn(0f, 1f) },
@@ -731,6 +804,37 @@ fun HomeScreen(
                     pillFocused = true
                     vm.overlay = Overlay.ControlCenter()
                 },
+                onDown = { runCatching { windowRequester.requestFocus() } },
+            )
+        }
+
+        // The live slot, under the pill and in line with the plate: an icon until focus opens it.
+        if (slotShown) {
+            val geometry = tvSlotGeometry(
+                screenW = metrics.screenW,
+                screenH = metrics.screenH,
+                margin = metrics.margin,
+                pitchX = metrics.pitchX,
+                tileW = metrics.tileW,
+                tileH = metrics.tileH,
+                columns = COLUMNS,
+                topRowY = metrics.topRowY,
+                plate = plateShown,
+            )
+            TvWindow(
+                tv = tv,
+                geometry = geometry,
+                focusRequester = windowRequester,
+                enabled = onHome,
+                onUp = { runCatching { pillRequester.requestFocus() } },
+                onDown = { focusApp(topRowEnd) },
+                onLeft = if (weatherControls != null) { { runCatching { weatherRequester.requestFocus() } } } else null,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    // Part of Home, not a layer over it: it goes up with the grid (see the offset the
+                    // grid itself takes), so scrolling down takes the icon and the window away.
+                    .offset { IntOffset(0, -scroll.value.roundToInt()) }
+                    .graphicsLayer { alpha = if (overlay is Overlay.ControlCenter) 0f else 1f },
             )
         }
 

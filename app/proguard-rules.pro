@@ -6,3 +6,8 @@
 # Kept, the reference stays in a class that only API 34+ loads.
 -keep class androidx.activity.OnBackPressedDispatcher$Api34Impl { *; }
 -keep class androidx.activity.OnBackPressedDispatcher$Api33Impl { *; }
+
+# LibVLC: the JNI layer calls back into these classes and looks up native methods by name.
+-keep class org.videolan.libvlc.** { *; }
+-keepclasseswithmembernames class * { native <methods>; }
+-dontwarn org.videolan.**

@@ -18,6 +18,11 @@
          "install unknown apps" page (TCL) tools/install.sh allows it over ADB. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- The IPTV channel list the TV's provider writes to /sdcard/iptv_sources.json. From Android 6
+         the app asks the owner for it once (tools/install.sh grants it on a test device); the live
+         window falls back to the bundled list when the file cannot be read. -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
     <!-- Both granted only over ADB by tools/install.sh, never requested in the app:
          - WRITE_SECURE_SETTINGS lets Aerial turn Home Guard back on after firmwares that
            force-stop third-party apps on standby (Xiaomi) have switched it off.

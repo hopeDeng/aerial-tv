@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.text.format.DateFormat
+import android.view.KeyEvent as NativeKeyEvent
 import android.graphics.PorterDuff
 import android.graphics.Matrix
 import androidx.compose.ui.geometry.Offset
@@ -35,7 +36,12 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.composed
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.boundsInRoot
@@ -335,6 +341,10 @@ val PlatePadH = 26.dp
 val PlatePadV = 20.dp
 private val PlateCorner = 32.dp
 
+/** The status pill's place: Home hangs it here, and the live window's top gap is measured from it. */
+val PillTop = 28.dp
+val PillHeight = 34.dp
+
 /** The grid's background: the frosted picture under this much black. */
 private const val GRID_SHADE = 0.55f
 
@@ -416,6 +426,8 @@ fun ShelfClock(
     toSaver: () -> Float = { 0f },
     /** The screensaver is up over Home, carrying this clock: it wanders as the screensaver's does. */
     saving: Boolean = false,
+    /** The weather line as a control, where the remote leads from it; null keeps it plain text. */
+    weather: WeatherControls? = null,
 ) {
     val drift = if (saving) saverDrift(now) else DpOffset.Zero
     val shadow = Shadow(Color.Black.copy(alpha = 0.28f), Offset(0f, 2f), blurRadius = 18f)
@@ -434,16 +446,73 @@ fun ShelfClock(
                 .trimmed(top = ClockTrimTop, bottom = ClockTrimBottom),
         )
         Weather.now?.takeIf { AerialSettings.showWeather }?.let { w ->
-            Row(aside, verticalAlignment = Alignment.CenterVertically) {
-                GlyphIcon(glyphFor(w), Color.White, 22.dp, Modifier.padding(end = 8.dp))
-                BasicText("${w.celsius}°", style = Type.Title.copy(color = Color.White, shadow = shadow))
-                val place = Weather.place?.takeIf { it.length <= 12 }
-                val range = if (w.high != null && w.low != null) stringResource(R.string.weather_high_low, w.high, w.low) else null
-                val detail = listOfNotNull(place, stringResource(conditionName(w.kind)), range).joinToString("  ·  ")
-                BasicText(detail, style = Type.Headline.copy(color = secondary, shadow = shadow), modifier = Modifier.padding(start = 12.dp))
+            if (weather == null) {
+                ShelfWeather(w, secondary, shadow, Color.White, aside)
+            } else Pressable(
+                onClick = weather.onClick,
+                focusRequester = weather.focusRequester,
+                focusedScale = 1.04f,
+                onKey = weatherKeys(weather),
+                modifier = aside,
+            ) { state ->
+                Box(Modifier.focusHalo(state.focused)) {
+                    ShelfWeather(
+                        w,
+                        if (state.focused) Palette.OnFocus.copy(alpha = 0.72f) else secondary,
+                        shadow,
+                        if (state.focused) Palette.OnFocus else Color.White,
+                    )
+                }
             }
         }
     }
+}
+
+/** The weather under the large clock: the condition, the city it is for (issue #59), today's range. */
+@Composable
+private fun ShelfWeather(w: WeatherNow, secondary: Color, shadow: Shadow, main: Color, modifier: Modifier = Modifier) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        GlyphIcon(glyphFor(w), main, 22.dp, Modifier.padding(end = 8.dp))
+        BasicText("${w.celsius}°", style = Type.Title.copy(color = main, shadow = shadow))
+        val place = Weather.place?.takeIf { it.length <= 12 }
+        val range = if (w.high != null && w.low != null) stringResource(R.string.weather_high_low, w.high, w.low) else null
+        val detail = listOfNotNull(place, stringResource(conditionName(w.kind)), range).joinToString("  ·  ")
+        BasicText(detail, style = Type.Headline.copy(color = secondary, shadow = shadow), modifier = Modifier.padding(start = 12.dp))
+    }
+}
+
+/**
+ * Where the weather line leads once it has focus, and what OK there does. Home gives it to either
+ * clock, so the live slot's Left has somewhere to come from in both layouts.
+ */
+class WeatherControls(
+    val focusRequester: FocusRequester,
+    val onClick: () -> Unit,
+    val onUp: () -> Unit,
+    val onRight: () -> Unit,
+    val onDown: () -> Unit,
+)
+
+private fun weatherKeys(w: WeatherControls): (KeyEvent) -> Boolean = { event ->
+    if (event.type != KeyEventType.KeyDown) false
+    else when (event.nativeKeyEvent.keyCode) {
+        NativeKeyEvent.KEYCODE_DPAD_UP -> { w.onUp(); true }
+        NativeKeyEvent.KEYCODE_DPAD_RIGHT -> { w.onRight(); true }
+        NativeKeyEvent.KEYCODE_DPAD_DOWN -> { w.onDown(); true }
+        else -> false
+    }
+}
+
+/** The focus frame behind a control, outside its bounds: nothing shifts when it takes focus. */
+private fun Modifier.focusHalo(focused: Boolean): Modifier = if (!focused) this else drawBehind {
+    val side = 12.dp.toPx()
+    val band = 6.dp.toPx()
+    drawRoundRect(
+        color = Palette.Focus,
+        topLeft = Offset(-side, -band),
+        size = Size(size.width + side * 2f, size.height + band * 2f),
+        cornerRadius = CornerRadius(50.dp.toPx()),
+    )
 }
 
 /** Inter's cap top below the top of a line of natural height, as a share of the font size. */
@@ -506,21 +575,50 @@ private fun conditionName(kind: WeatherKind): Int = when (kind) {
  * pill, so the wallpaper keeps the rest of the screen. A soft shadow keeps it readable on photos.
  */
 @Composable
-fun CornerClock(now: LocalDateTime, modifier: Modifier = Modifier, toSaver: () -> Float = { 0f }, saving: Boolean = false) {
+fun CornerClock(
+    now: LocalDateTime,
+    modifier: Modifier = Modifier,
+    toSaver: () -> Float = { 0f },
+    saving: Boolean = false,
+    /** The weather in this line as a control; null keeps it plain text. */
+    weather: WeatherControls? = null,
+) {
     val drift = if (saving) saverDrift(now) else DpOffset.Zero
     val dim = Color.White.copy(alpha = 0.92f)
     val shadow = Shadow(Color.Black.copy(alpha = 0.5f), blurRadius = 8f)
+    val aside = Modifier.graphicsLayer { alpha = 1f - (toSaver() * 2.5f).coerceIn(0f, 1f) }
     Row(modifier.height(34.dp), verticalAlignment = Alignment.CenterVertically) {
         BasicText(
             timeText(now), style = Type.SmallClock.copy(fontSize = Type.Title.fontSize, color = dim, shadow = shadow),
             modifier = Modifier.toSaverClock(toSaver, Type.Title.fontSize, Type.Title.fontSize.value.dp * CAP_TOP, drift),
         )
         Weather.now?.takeIf { AerialSettings.showWeather }?.let { w ->
-            val aside = Modifier.graphicsLayer { alpha = 1f - (toSaver() * 2.5f).coerceIn(0f, 1f) }
-            GlyphIcon(glyphFor(w), dim, 18.dp, aside.padding(start = 16.dp, end = 6.dp))
-            val place = Weather.place?.takeIf { it.length <= 12 }
-            BasicText(listOfNotNull(place, "${w.celsius}°").joinToString(" "), style = Type.Headline.copy(color = dim, shadow = shadow), modifier = aside)
+            if (weather == null) {
+                GlyphIcon(glyphFor(w), dim, 18.dp, aside.padding(start = 16.dp, end = 6.dp))
+                val place = Weather.place?.takeIf { it.length <= 12 }
+                BasicText(listOfNotNull(place, "${w.celsius}°").joinToString(" "), style = Type.Headline.copy(color = dim, shadow = shadow), modifier = aside)
+            } else Pressable(
+                onClick = weather.onClick,
+                focusRequester = weather.focusRequester,
+                focusedScale = 1.04f,
+                onKey = weatherKeys(weather),
+                modifier = aside.padding(start = 16.dp),
+            ) { state ->
+                Box(Modifier.focusHalo(state.focused)) {
+                    CornerWeather(w, if (state.focused) Palette.OnFocus else dim, shadow)
+                }
+            }
         }
+    }
+}
+
+/** The city and the temperature in the small clock's line. */
+@Composable
+private fun CornerWeather(w: WeatherNow, main: Color, shadow: Shadow) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        GlyphIcon(glyphFor(w), main, 18.dp, Modifier.padding(end = 6.dp))
+        val place = Weather.place?.takeIf { it.length <= 12 }
+        BasicText(listOfNotNull(place, "${w.celsius}°").joinToString(" "), style = Type.Headline.copy(color = main, shadow = shadow))
     }
 }
 
@@ -547,6 +645,8 @@ fun StatusPill(
     focusRequester: FocusRequester,
     onFocused: (Boolean) -> Unit,
     onClick: () -> Unit,
+    /** Down leads to the live slot rather than back into the grid. */
+    onDown: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Pressable(
@@ -554,6 +654,11 @@ fun StatusPill(
         enabled = enabled,
         focusRequester = focusRequester,
         focusedScale = 1.08f,
+        onKey = if (onDown == null) null else { event ->
+            if (event.type != KeyEventType.KeyDown || event.nativeKeyEvent.keyCode != NativeKeyEvent.KEYCODE_DPAD_DOWN) return@Pressable false
+            onDown()
+            true
+        },
         modifier = modifier,
     ) { state ->
         LaunchedEffect(state.focused) { onFocused(state.focused) }
@@ -566,7 +671,7 @@ fun StatusPill(
             Modifier
                 .clip(RoundedCornerShape(50))
                 .background(bg)
-                .height(34.dp)
+                .height(PillHeight)
                 .padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),

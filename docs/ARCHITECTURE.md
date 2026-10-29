@@ -29,7 +29,21 @@ app/src/main/java/app/orchard/tv/
 │   ├── home/PinPad.kt       家长密码键盘（设置 / 解锁，遥控器数字键或屏幕键盘）
 │   ├── home/Screensaver.kt  屏保 UI：航拍（Media3 ExoPlayer，见 wallpaper/AerialStream.kt）/ 照片（Ken Burns）/ 时钟
 │   ├── control/ControlCenter.kt  控制中心：按钮、音量/亮度滑块、「个性化」入口、有新版本时的提示和升级说明页、底部版本号；信号源页（只负责切换）和信号源设置页（显示在主屏幕、开机时打开）
-│   └── wallpaper/WallpaperSheet.kt  个性化面板（壁纸、屏保和开始时间、焦点样式、家长密码、天气）+ 手机扫码卡片
+│   ├── wallpaper/WallpaperSheet.kt  个性化面板（壁纸、屏保和开始时间、焦点样式、家长密码、天气）+ 手机扫码卡片
+│   └── tv/                  直播窗口、全屏、频道列表/网格、EPG、源列表、手机扫码管理面板
+├── tv/
+│   ├── TvController.kt      直播状态：频道/当前源、预览/全屏、保存后的恢复、面板与 8791 服务器生命周期
+│   ├── TvStore.kt           私有频道配置、首次迁移、原子写、5 份备份、源池
+│   ├── TvSources.kt         频道 JSON 解析（空列表与损坏文件区分）、M3U 回退
+│   ├── TvImport.kt          M3U 解析/预览/合并、名称归一化、`hnyd` 排序、GBK、M3U 导出
+│   ├── TvSpeedTest.kt       HLS 首个变体/分片或直连前 2MB，估算 Mbps、码率、分辨率与能否流畅播放
+│   ├── TsVideoSize.kt       没有主清单时从 TS 的 PAT/PMT/H.264 SPS 读分辨率（VLC 轨宽高为 0 的兜底）
+│   ├── TvQuality.kt         检测状态、播放器画面参数、侧栏显示用的评级与格式化
+│   ├── TvPhoneServer.kt     NanoHTTPD 8791 手机频道管理页和 API
+│   ├── TvPlayer.kt          LibVLC 优先，失败时同一 URL 回退 ExoPlayer
+│   ├── VlcTvPlayer.kt       LibVLC 的 TextureView、播放状态与视频轨参数
+│   ├── ExoPlayerTvPlayer.kt Media3 回退播放器、VideoSize/Format 参数
+│   └── EpgData.kt           节目单：CCTV 走 CNTV JSON，卫视/地方台走 tvmao 页面（含频道名映射）
 ├── wallpaper/
 │   ├── Wallpapers.kt        壁纸单例：来源（每日/内置/照片/照片每天换一张/跟随App）、选择、首页背景烘焙（结果存在 files/backdrop/，冷启动直接读回）、缩略图、上传
 │   ├── Gradients.kt         14 张 Mac 风格内置壁纸（山丘、沙丘、海、波浪、光晕），在电视上按实际分辨率画
@@ -57,6 +71,8 @@ app/src/main/java/app/orchard/tv/
 
 app/src/main/assets/aerials.json   Apple 航拍目录（114 条：地址 + 中英文地名 + 时间点说明）
 app/src/main/assets/web/index.html 手机配置页（单文件，iOS 风格，深浅色）
+app/src/main/assets/web/tv.html    手机频道管理页（单文件，五语言，频道/源/导入导出；播放检测只发命令）
+app/src/main/assets/hnyd.m3u       没有电视源文件时的内置频道回退
 app/src/standard/AndroidManifest.xml  只给 standard 版本加 HOME intent-filter
 tools/install.sh / restore.sh       部署与还原
 tools/report.sh                     收集机型适配信息（只读），输出贴进 issue 的 Markdown
@@ -170,6 +186,18 @@ NanoHTTPD 监听 8790 端口，路径前缀是 8 位随机令牌（每次打开�
 - **自定义图标**：图片裁成 16:9、1280×720 存成 PNG，有这张图的 App 直接当横幅画（`AppCatalog.entry`，排在系统 App 自绘磁贴前面）。磁贴缓存的键里带着图片的修改时间；`CustomIcons.version` 变化时 `HomeViewModel` 重新加载 App。电视上的长按菜单里有「恢复默认图标」。包名必须是已安装的 App，同时也保证它是一个合法的文件名。
 - **文件夹**（像 tvOS）：长按菜单「移到文件夹」→ 选已有的文件夹或「新建文件夹」。新文件夹占这个 App 原来的位置，名字按 App 自动起（系统 App 叫「系统应用」，其他叫「文件夹」，重名加数字），可在文件夹的长按菜单里从预设名字（`folder_names`）中改；电视上没有好用的输入法，所以不做自由输入。文件夹在 `LayoutStore` 的排序里占一个 `folder:<id>` 键，里面的 App 不再出现在排序里；存成 JSON（`folders`），只记包名。文件夹磁贴是 `folderEntry`，画面是 `TileArtFactory.forFolder`：半透明底板上三乘三排最多九个 App 的缩略图，只在里面的 App 变了时重画。打开文件夹是全屏的 `FolderView`：主屏模糊变暗，上面是名字和同样大小的磁贴；在里面长按，菜单第一项是「移出文件夹」（放到文件夹后面）而不是「移动」，关掉菜单回到文件夹。最后一个 App 移出后文件夹自动消失；「解散文件夹」把里面的 App 按顺序放回文件夹的位置。浮层（菜单、文件夹）关闭时，Compose 会先把焦点交给浮层下面的磁贴，所以打开时记下要回到哪个磁贴（`focusAfterOverlay`、`FolderView` 的 `menuKey`）。小米 MFTR0 上验证过：新建、放入、打开、文件夹里的菜单、重命名、移出、解散，测完排列和原来一样。
 - **天气**（`Weather`）：Open-Meteo 的实时天气接口和地名查询接口都不需要 Key，国内能访问。城市优先用手机页里设置的；没设置时用 ipinfo.io 按 IP 定位，每天最多一次。整个家庭网络走代理时 IP 定位会定到别的国家（家里的网络就会定到新加坡），所以手机页会显示定位结果，让用户改。回到主页时刷新，最多每小时一次；最近一次结果缓存 3 小时，开机后先显示缓存。老系统不信任 Let's Encrypt 的根证书，HTTPS 失败时改用 HTTP（`network_security_config.xml` 只对这几个域名放行明文）。
+
+## 直播频道（tv/）
+
+- **首页槽位**：`ui/tv/TvWindow.kt` 画在右上角，和第一排/玻璃底板对齐；失焦时是一个磁贴大小的图标，聚焦时展开成 16:9 预览并开始播放，失焦立即缩回并停止，不常驻播放。全屏时槽位让位给 `TvFullscreen`。槽位收起时只有没有可播频道（`current == null`）才显示「无频道」；有频道但窗口刚启动或从 App 回来处于 `Stopped` 时仍显示图标。主页第一次加载完成且当前频道可播时，焦点自动落在槽位一次；之后从 App、屏保或网格回来仍按原来的焦点规则。槽位随网格滚动，滚过第一排后 `TvEvent.LeftHome` 停止播放；打开别的 App、按 HOME 退出全屏、手动/自动进屏保也会停。空闲定时器在预览聚焦时让它直接全屏，在全屏时只重新计时，不启动屏保。
+- **键位**：全屏 ←/→ 和频道加减换台，↑ 打开手机管理，↓ 打开当前频道的源列表，OK/ENTER 打开频道列表，MENU/INFO/GUIDE 开关节目单，BACK 退出全屏。频道列表里的 MENU 进入 5 列频道网格；网格 MENU 回到列表。网格只在选中行没有完整显示时滚动（上移对齐顶部、下移对齐底部），上下到头在首行/末行之间循环；选中的格子是亮橙色圆角边框。小窗只在左下角显示「OK 全屏」，不显示加载中或频道名；全屏频道名、换台提示和错误共用左下角半透明徽标，右下角不再重复。槽位聚焦时 ↑ 到右上状态胶囊、↓ 到第一排最右磁贴、← 到天气行；槽位自己吞掉其余方向键，换台和面板都只属于全屏。所有面板按键/触摸会重置 15 秒自动关闭，只有手机管理面板例外。
+- **配置**：`TvStore` 从 `/sdcard/iptv_sources.json` 首次迁移到 `files/tv/iptv_sources.json`，之后只读写私有文件；损坏时从 `files/tv/backup/` 最新的可读备份恢复，损坏文件另存 `corrupt-*.json`。每次保存先写临时文件、`fsync`、`rename`，并保留最近 5 份 `aerial-*.json`。`source_pool.json` 保存所有见过的源，删除频道或源不会丢 URL；保存后按“频道名 + 当前源 URL”恢复正在看的台，频道被删则从原位置往后找可用频道。
+- **导入**：`TvImport` 接受 `#EXTINF`、裸 URL 和 `名称,URL` 行，只保留 http；名字取最后一个逗号后的部分，`频道N` 补空名。名称归一化去掉空格和 `-_·+超清高电视频道` 等字，先精确匹配再做包含匹配，但尾部以数字开头（如“CCTV1”和“CCTV10”）不合并。`hnyd` 标签的源排到该频道最前，同时按 URL 找回原来的当前源。UTF-8 解码出现替换字符时改试 GBK。预览和真正合并共用同一套规则；JSON 覆盖导入会替换频道和源池、导入前自动备份。
+- **播放与节目单**：`TvPlayer` 默认 LibVLC（和参考播放器一致，能处理 hnyd/ZTE 的 HLS 空 query），LibVLC 加载失败或报错时同一 URL 只回退 ExoPlayer 一次；一个源失败后只在当前频道的其他源里重试，不自动跳到别的频道。`EpgData` 的央视节目单来自 CNTV JSON，卫视/地方台来自 tvmao 页面，按频道名映射；没有映射的频道显示“无节目单”。EPG 只在全屏打开时加载。
+- **手机管理**：`TvPhoneServer` 是独立的 NanoHTTPD，端口 8791，路径带 8 位随机 token；二维码由 `PhoneServer.qr()` 生成。只有全屏按 ↑ 打开面板时启动，面板关闭后延迟 5 分钟停止，重新打开会取消停止任务。页面是 `assets/web/tv.html`，支持频道/源的增删改、排序、启停、当前源、删除确认、m3u 文件/URL/粘贴预览、JSON 覆盖导入、JSON/M3U 导出、单频道/全部测速。点单源的「播放检测」只调用 `POST /api/source/test-play`，由电视切到该源并全屏播放；网页不再播放视频。检测期间指定源失败只显示“播放失败”，不会自动换到同频道别的源；正常换台/换源会清掉上次检测。全屏按 ↑ 的二维码面板缩成右侧 360dp 侧栏：二维码、网页地址、当前频道和源标签、播放状态、源 URL、评级徽标，以及速度/码率/分辨率/帧率四张卡。码率/分辨率优先用播放器上报的真实值，缺失时回退测速；速度只来自 `TvSpeedTest`；帧率只来自播放器，读不到显示“—”。LibVLC 从 `MediaPlayer.currentVideoTrack` 取宽高/帧率/码率，ExoPlayer 从 `VideoSize`/`videoFormat` 取。写入接口在服务器对象上串行执行，避免手机连点造成最后写入覆盖；启动失败会关掉半开的 socket。
+- **API**：`GET /`、`/api/state`、`/api/pool`、`/api/export/json`、`/api/export/m3u`、`/api/test/status?id=`；`POST /api/channel/add|rename|move|enable|delete`、`/api/source/add|move|enable|delete|current|test-play`、`/api/import/preview|apply`、`/api/import/json?confirm=1`、`/api/test/start`。`/api/source/test-play` 收 `channel`、`source` 两个下标，成功返回 `{"ok":true}`，非法下标 400。JSON 覆盖的 `confirm=1` 必须放在 query：NanoHTTPD 的 `parseBody` 会消费 body。multipart 上传复用 `session.parseBody(files)`，上限 6MB。
+- **测速**：单源最多 8 秒、读取上限 2MB、并发 3；HLS 先读主清单的首个变体，再读首个分片，直接流读前 2MB，连接时间也算进去。≥4 Mbps 标高清流畅、≥2 Mbps 流畅、≥1 Mbps 较慢、<1 Mbps 不可用；检测到 `#EXT-X-KEY` 标为加密。HLS 主清单的 `BANDWIDTH/RESOLUTION` 直接可用；没有主清单时，码率用首个分片的 `#EXTINF` 时长和 `Content-Range/Content-Length` 算，分辨率从首个 TS 分片的 PAT/PMT/H.264 SPS 读（hnyd 的 LibVLC 视频轨宽高为 0，见 `TsVideoSize`）。帧率仍只信播放器上报。hnyd/ZTE 的裸 `?` 在请求前补成 `?x=1`，和 ExoPlayer 的修法一致。它只估算带宽，不能证明解码、防盗链、UA/Referer 或 TLS 一定兼容。
+- **验证状态（2026-10-29）**：`compileStandardDebugKotlin testStandardDebugUnitTest`、`assembleStandardRelease`、`assembleGuardRelease` 通过；完整 lint 只剩既有错误。创维 8N07_J9000（Android 8.0，`192.168.1.21:5555`）上装了 standard release：频道文件 162 个频道，预览播放、OK 全屏、频道列表选择、手机管理二维码和页面打开正常；用 curl 验证 `api/state`、`api/pool`、JSON/M3U 导出、频道增删改启停、M3U multipart 预览/合并、JSON 覆盖导入（同内容）和单频道测速，临时频道已删除，测试没有改动当前频道。桌面 Chrome headless 打开页面确认 162 张频道卡、实际点开频道源列表、打开 m3u 导入并粘贴预览（重复标记正确），无 JS 异常。用户随后在同一台电视上手动验证全屏换台、源列表、EPG、频道列表/网格、真手机扫码页、m3u 文件导入预览和关闭面板后端口停止，均符合预期；网格滚动/循环和橙色边框复测通过。2026-10-29 在同一台电视上验证电视端播放检测：`POST /api/source/test-play` 返回 `{"ok":true}` 后切到 CCTV1/hnyd 并全屏播放，右侧栏显示「播放中」、73.6 Mbps、8.6 Mbps、1920×1080；改测已失效的 `69.30.245.50` 源时显示「播放失败」「不可达」，源仍停在该失效 URL，没有自动跳到同频道其他源。测试后已切回 CCTV7/hnyd 并退出全屏。hnyd 的 VLC 视频轨宽高为 0，分辨率由测速的 TS SPS 兜底，帧率仍显示「—」，ExoPlayer 源会给出帧率。EPG 映射只覆盖部分频道，不是 162 个都有节目单。
 
 ## 升级（update/Updates.kt）
 

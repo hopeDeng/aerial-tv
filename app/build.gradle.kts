@@ -23,6 +23,8 @@ android {
         val diag = project.hasProperty("diag")
         buildConfigField("boolean", "DIAG", diag.toString())
         if (diag) versionNameSuffix = "-diag"
+        // libVLC ships per-ABI .so files; the TVs here are 32-bit, but a few are arm64.
+        ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a") }
     }
 
     // standard: a normal HOME app. guard: no HOME intent filter at all, for China-market firmwares
@@ -77,6 +79,8 @@ android {
     }
     packaging {
         resources.excludes += setOf("/META-INF/{AL2.0,LGPL2.1}", "DebugProbesKt.bin", "kotlin-tooling-metadata.json")
+        // Android 5/6/8 load libVLC from the extracted lib dir; compressed libs fail System.loadLibrary.
+        jniLibs.useLegacyPackaging = true
     }
 }
 
@@ -101,8 +105,14 @@ dependencies {
     implementation("androidx.profileinstaller:profileinstaller:1.4.0")
     // Aerial films. 1.8 is the last Media3 that runs on Android 5.0 (1.9 raised minSdk to 23).
     implementation("androidx.media3:media3-exoplayer:1.8.1")
+    implementation("androidx.media3:media3-exoplayer-hls:1.8.1")
     implementation("androidx.media3:media3-datasource:1.8.1")
     implementation("androidx.media3:media3-database:1.8.1")
+    // Live-TV playback uses LibVLC (the engine the reference player runs on): ExoPlayer mangles the
+    // ZTE/hnyd HLS URLs (empty query -> HTTP 400) and treats a live-window slip as fatal.
+    implementation("org.videolan.android:libvlc-all:3.7.7")
+    // libvlc-all still declares fragment:1.0.0; ActivityResult APIs need >= 1.3.0 (lint fatal).
+    implementation("androidx.fragment:fragment:1.6.2")
     // Phone setup page (a tiny LAN web server) and the QR code that opens it.
     implementation("org.nanohttpd:nanohttpd:2.3.1")
     implementation("com.google.zxing:core:3.5.3")

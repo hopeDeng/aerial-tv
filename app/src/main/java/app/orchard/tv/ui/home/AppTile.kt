@@ -153,6 +153,8 @@ fun AppTile(
     modifier: Modifier = Modifier,
     /** Last tile of its row: Right stops here instead of finding the status pill above (#211). */
     rowEnd: Boolean = false,
+    /** Where Up leads instead of the pill above: the live slot, for the top row's right-most tile. */
+    upTarget: FocusRequester? = null,
     /** False on the glass plate: the top row shows no names there, as on tvOS 26. */
     showName: Boolean = true,
     /** The name sits on the glass plate, which ends just under it: it does not step down past the focus frame. */
@@ -394,7 +396,10 @@ fun AppTile(
                         },
                     )
                 }
-                .focusProperties { if (rowEnd) right = FocusRequester.Cancel }
+                .focusProperties {
+                    if (rowEnd) right = FocusRequester.Cancel
+                    upTarget?.let { up = it }
+                }
                 .focusable(enabled),
         ) {
             Spacer(Modifier.fillMaxSize().drawWithCache {

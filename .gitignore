@@ -17,3 +17,6 @@ site/icons/
 
 # Wrangler state and the account cache (account id, e-mail).
 .wrangler/
+
+# Visual companion mockups from the brainstorming skill.
+.superpowers/

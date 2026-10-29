@@ -1,0 +1,791 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<title>Aerial · Channels</title>
+<style>
+  :root {
+    --bg: #f2f2f7; --card: #fff; --label: #000; --secondary: rgba(60,60,67,.62);
+    --sep: rgba(60,60,67,.16); --tint: #007aff; --fill: rgba(118,118,128,.12);
+    --danger: #ff3b30; --ok: #34c759; --warn: #ff9f0a; --scrim: rgba(0,0,0,.36);
+    --bar: rgba(249,249,249,.86); --radius: 16px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #000; --card: #1c1c1e; --label: #fff; --secondary: rgba(235,235,245,.62);
+      --sep: rgba(84,84,88,.5); --tint: #0a84ff; --fill: rgba(118,118,128,.24);
+      --danger: #ff453a; --ok: #30d158; --warn: #ffd60a; --scrim: rgba(0,0,0,.55);
+      --bar: rgba(22,22,22,.86);
+    }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--label);
+    font: 16px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
+      "HarmonyOS Sans SC", "MiSans", system-ui, sans-serif;
+  }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  [hidden] { display: none !important; }
+  .top {
+    position: sticky; top: 0; z-index: 10; background: var(--bar);
+    backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px);
+    border-bottom: .5px solid var(--sep); padding: max(10px, env(safe-area-inset-top)) 16px 10px;
+  }
+  .topin { max-width: 1120px; margin: 0 auto; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+  .brand { flex: 1; min-width: 180px; }
+  .brand h1 { margin: 0; font-size: 26px; letter-spacing: -.02em; }
+  .brand p { margin: 2px 0 0; font-size: 13px; color: var(--secondary); }
+  .tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .btn {
+    border: 0; border-radius: 10px; background: var(--fill); color: var(--label);
+    min-height: 36px; padding: 7px 12px; display: inline-flex; align-items: center; gap: 6px;
+    text-decoration: none; transition: transform .12s ease, background .2s ease;
+  }
+  .btn:active { transform: scale(.97); }
+  .btn.primary { background: var(--tint); color: #fff; }
+  .btn.danger { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
+  .btn.small { min-height: 30px; padding: 4px 9px; font-size: 14px; border-radius: 8px; }
+  .btn.icon { min-width: 32px; justify-content: center; padding: 4px 8px; }
+  .btn[disabled] { opacity: .45; pointer-events: none; }
+  .btn.link { background: none; color: var(--tint); padding: 4px 6px; }
+  .lang { border: 1px solid var(--sep); background: var(--card); border-radius: 9px; min-height: 36px; padding: 4px 8px; }
+  main { max-width: 1120px; margin: 0 auto; padding: 16px 16px calc(48px + env(safe-area-inset-bottom)); }
+  .hint { color: var(--secondary); font-size: 13px; margin: 0 4px 14px; }
+  #channels { display: grid; gap: 12px; }
+  @media (min-width: 900px) { #channels { grid-template-columns: 1fr 1fr; align-items: start; } }
+  .card {
+    background: var(--card); border-radius: var(--radius); overflow: hidden;
+    border: 1px solid transparent; box-shadow: 0 1px 2px rgba(0,0,0,.04);
+  }
+  .card.current { border-color: color-mix(in srgb, var(--tint) 45%, transparent); }
+  .card.off { opacity: .72; }
+  .chead { display: flex; align-items: center; gap: 10px; padding: 14px 14px 8px; }
+  .cname { flex: 1; min-width: 0; border: 0; background: none; text-align: left; padding: 0; }
+  .cname b { display: block; font-size: 17px; letter-spacing: -.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cname span { display: block; color: var(--secondary); font-size: 12px; margin-top: 2px; }
+  .badges { display: flex; gap: 6px; padding: 0 14px 6px; flex-wrap: wrap; }
+  .tag { font-size: 11px; border-radius: 999px; padding: 2px 7px; background: var(--fill); color: var(--secondary); white-space: nowrap; }
+  .tag.current { background: color-mix(in srgb, var(--tint) 16%, transparent); color: var(--tint); }
+  .tag.ok { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
+  .tag.warn { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+  .tag.bad { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
+  .cactions { display: flex; gap: 4px; padding: 2px 10px 10px; flex-wrap: wrap; align-items: center; }
+  .switch {
+    appearance: none; -webkit-appearance: none; position: relative; flex-shrink: 0;
+    width: 46px; height: 28px; margin: 0; border-radius: 999px; background: var(--fill);
+    transition: background .2s ease; cursor: pointer;
+  }
+  .switch::after {
+    content: ""; position: absolute; top: 2px; left: 2px; width: 24px; height: 24px;
+    border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.25);
+    transition: transform .22s cubic-bezier(.23,1,.32,1);
+  }
+  .switch:checked { background: var(--ok); }
+  .switch:checked::after { transform: translateX(18px); }
+  .sources { border-top: .5px solid var(--sep); padding: 4px 12px 10px; background: color-mix(in srgb, var(--fill) 28%, transparent); }
+  .src { display: flex; gap: 10px; padding: 9px 2px; border-top: .5px solid var(--sep); align-items: flex-start; }
+  .src:first-child { border-top: 0; }
+  .src.off { opacity: .62; }
+  .srcinfo { flex: 1; min-width: 0; }
+  .srcinfo .slabel { font-size: 12px; color: var(--secondary); }
+  .srcinfo .surl { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+  .speed { font-size: 12px; margin-top: 3px; color: var(--secondary); }
+  .speed.good { color: var(--ok); } .speed.slow { color: var(--warn); } .speed.bad { color: var(--danger); }
+  .srcside { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; }
+  .srcacts { display: flex; gap: 2px; flex-wrap: wrap; justify-content: flex-end; }
+  .empty { text-align: center; color: var(--secondary); padding: 70px 20px; }
+  .empty b { display: block; color: var(--label); font-size: 19px; margin-bottom: 6px; }
+  .progress { position: fixed; left: 0; right: 0; top: 0; height: 2px; background: var(--tint); transform-origin: 0 50%; animation: pulse 1.1s ease-in-out infinite; z-index: 30; }
+  @keyframes pulse { 0% { transform: scaleX(.05); opacity: .5; } 50% { transform: scaleX(.6); opacity: 1; } 100% { transform: scaleX(1); opacity: .3; } }
+  .sheet { position: fixed; inset: 0; z-index: 40; background: var(--scrim); display: flex; align-items: flex-end; justify-content: center; opacity: 0; pointer-events: none; transition: opacity .2s ease; }
+  .sheet.on { opacity: 1; pointer-events: auto; }
+  .sheetbox {
+    width: 100%; max-width: 620px; max-height: 90vh; overflow: auto; background: var(--card);
+    border-radius: 20px 20px 0 0; padding: 18px 18px calc(18px + env(safe-area-inset-bottom));
+    transform: translateY(18px); transition: transform .25s cubic-bezier(.23,1,.32,1);
+  }
+  @media (min-width: 700px) { .sheet { align-items: center; } .sheetbox { border-radius: 20px; } }
+  .sheet.on .sheetbox { transform: none; }
+  .sheethead { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .sheethead h2 { flex: 1; margin: 0; font-size: 20px; }
+  .shell { display: flex; flex-direction: column; gap: 12px; }
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .field label { font-size: 12px; color: var(--secondary); }
+  .field input, .field select, .field textarea {
+    width: 100%; border: 1px solid var(--sep); background: var(--bg); border-radius: 10px;
+    padding: 10px 11px; outline: none;
+  }
+  .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--tint); }
+  .field textarea { min-height: 90px; resize: vertical; font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
+  .note { font-size: 13px; color: var(--secondary); }
+  .note.warn { color: var(--warn); }
+  .sheetacts { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; flex-wrap: wrap; }
+  .pv { display: flex; flex-direction: column; gap: 2px; max-height: 38vh; overflow: auto; border: 1px solid var(--sep); border-radius: 10px; }
+  .pvitem { display: flex; gap: 9px; align-items: flex-start; padding: 8px 10px; border-top: .5px solid var(--sep); }
+  .pvitem:first-child { border-top: 0; }
+  .pvitem input { margin-top: 3px; }
+  .pvitem div { min-width: 0; flex: 1; }
+  .pvitem b { font-size: 14px; font-weight: 600; }
+  .pvitem .tag { margin-left: 5px; }
+  .pvitem .surl { font-size: 12px; color: var(--secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #toast {
+    position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); transform: translate(-50%, 16px);
+    background: rgba(28,28,30,.94); color: #fff; border-radius: 999px; padding: 9px 16px; font-size: 14px;
+    opacity: 0; pointer-events: none; transition: all .22s ease; z-index: 50; max-width: 88vw; text-align: center;
+  }
+  #toast.on { opacity: 1; transform: translate(-50%, 0); }
+  @media (prefers-color-scheme: dark) { #toast { background: rgba(240,240,245,.94); color: #000; } }
+</style>
+</head>
+<body>
+<div id="progress" class="progress" hidden></div>
+<header class="top">
+  <div class="topin">
+    <div class="brand">
+      <h1 data-i18n="title"></h1>
+      <p id="subtitle"></p>
+    </div>
+    <div class="tools">
+      <button id="add" class="btn primary"><span>+</span><span data-i18n="add_channel"></span></button>
+      <button id="import" class="btn"><span data-i18n="import"></span></button>
+      <button id="json" class="btn"><span data-i18n="import_json"></span></button>
+      <button id="exjson" class="btn"><span>JSON</span> <span class="note" data-i18n="export"></span></button>
+      <button id="exm3u" class="btn"><span>M3U</span> <span class="note" data-i18n="export"></span></button>
+      <select id="lang" class="lang" aria-label="Language"></select>
+    </div>
+  </div>
+</header>
+<main>
+  <p id="hint" class="hint"></p>
+  <div id="channels"></div>
+  <div id="empty" class="empty" hidden><b data-i18n="no_channels"></b><span data-i18n="empty_hint"></span></div>
+</main>
+<div id="sheet" class="sheet" aria-hidden="true">
+  <div class="sheetbox" role="dialog" aria-modal="true">
+    <div class="sheethead"><h2 id="sheettitle"></h2><button class="btn icon" id="sheetclose" aria-label="Close">×</button></div>
+    <div id="sheetbody"></div>
+    <div id="sheetacts" class="sheetacts"></div>
+  </div>
+</div>
+<div id="toast"></div>
+<script>
+const NAMES = { zh: '中文', en: 'English', ru: 'Русский', uk: 'Українська', kk: 'Қазақша' };
+const TEXTS = {
+zh: {
+ title:'频道管理', subtitle:'{n} 个频道 · 保存后电视立即生效', add_channel:'添加频道', import:'导入 m3u',
+ import_json:'导入 JSON', export:'导出', refresh:'刷新', channels:'频道', sources_count:'{n} 个源',
+ disabled:'已禁用', current:'正在播放', set_current:'设为当前源', rename:'改名', delete:'删除',
+ up:'上移', down:'下移', expand:'展开源', collapse:'收起源', add_source:'添加源', test:'播放检测',
+ testing:'测试中…', test_on_tv:'已在电视上播放，检测结果看电视二维码面板',
+ test_channel:'测本频道', test_all:'测全部', url:'直播源地址', label:'标签',
+ label_ph:'例如：家里', url_ph:'http://…', name:'频道名', name_ph:'输入频道名', save:'保存',
+ cancel:'取消', close:'关闭', confirm:'确认', delete_channel:'删除频道', delete_source:'删除源',
+ delete_channel_q:'删除“{name}”？', delete_channel_hint:'频道会从列表中移除，但它的源会保留在源池里，可再给别的频道使用。',
+ delete_source_q:'删除这个源？', delete_source_hint:'源会保留在源池里。', import_title:'导入 m3u',
+ import_file:'文件', import_url:'URL', import_paste:'粘贴', preview:'预览', select_all:'全选',
+ select_none:'取消全选', new_channel:'新频道', merge_into:'并入 {name}', duplicate:'已存在',
+ apply_import:'导入选中项', import_json_hint:'覆盖整个频道列表和源池。会先自动备份。',
+ overwrite:'覆盖导入', overwrite_warn:'这会替换当前频道配置，电视会自动保留备份。',
+ no_channels:'还没有频道', no_sources:'没有源', empty_hint:'添加一个频道，或导入 m3u 播放列表。',
+ v_hd:'高清流畅', v_smooth:'流畅', v_slow:'较慢', v_unusable:'太慢', v_failed:'不可达',
+ v_encrypted:'加密', speed_hint:'在电视上实测的带宽；能否解码仍以实际播放为准。',
+ no_url:'请填写直播源地址', no_name:'请填写名称', imported:'已导入 {c} 个频道、{s} 个源',
+ json_imported:'频道配置已覆盖', source_pool:'源池', pick_pool:'从已导入的源选择', manual:'手动',
+ test_running:'测试中 {done}/{total}', test_done:'测试完成', error:'操作失败', lang:'语言',
+ first_url:'第一个直播源地址', file:'选择文件', from_url:'从 URL', selected_n:'已选 {n} 项',
+ all_sources:'全部源', not_tested:'未测试', retest:'重新检测', apply:'应用', progress:'处理中…',
+ import_url_ph:'https://example.com/list.m3u', paste_ph:'#EXTM3U…', file_hint:'支持 m3u、m3u8、txt，最大 5 MB',
+ json_url_ph:'JSON 文件的 URL', sources:'直播源', source:'源', current_badge:'当前',
+ err_channel_exists:'这个频道已经存在', err_duplicate:'这个源已经在频道里', err_last_source:'最后一个源不能删，请直接删频道',
+ err_preview:'预览已过期，请重新预览', err_none:'没有勾选任何项', err_running:'已经有测试在运行',
+ err_json:'JSON 格式不对，原配置没有改动', err_playlist:'没有解析到可用频道', err_url:'地址不对',
+ err_name:'名称不能为空', err_too_large:'文件太大（最大 5 MB）', err_empty:'请先导入或填写内容',
+ n_timeout:'超时', n_http:'HTTP 错误', n_html:'返回了网页而不是视频', n_no_segment:'找不到分片',
+ n_error:'连接失败', n_playlist_depth:'嵌套层级过多'
+},
+en: {
+ title:'Channels', subtitle:'{n} channels · save and the TV updates', add_channel:'Add channel',
+ import:'Import m3u', import_json:'Import JSON', export:'Export', refresh:'Refresh', channels:'Channels',
+ sources_count:'{n} sources', disabled:'Off', current:'Playing', set_current:'Play this source',
+ rename:'Rename', delete:'Delete', up:'Move up', down:'Move down', expand:'Show sources',
+ collapse:'Hide sources', add_source:'Add source', test:'Play & check', testing:'Testing…',
+ test_on_tv:'Playing on the TV. Check the QR panel for results.',
+ test_channel:'Test channel', test_all:'Test all', url:'Source URL', label:'Label',
+ label_ph:'e.g. home', url_ph:'http://…', name:'Channel name', name_ph:'Channel name', save:'Save',
+ cancel:'Cancel', close:'Close', confirm:'Confirm', delete_channel:'Delete channel',
+ delete_source:'Delete source', delete_channel_q:'Delete “{name}”?',
+ delete_channel_hint:'The channel leaves the list, but its sources stay in the source pool for other channels.',
+ delete_source_q:'Delete this source?', delete_source_hint:'The URL stays in the source pool.',
+ import_title:'Import m3u', import_file:'File', import_url:'URL', import_paste:'Paste',
+ preview:'Preview', select_all:'Select all', select_none:'Select none', new_channel:'New channel',
+ merge_into:'Into {name}', duplicate:'Already there', apply_import:'Import selected',
+ import_json_hint:'Replaces the whole channel list and source pool. A backup is kept automatically.',
+ overwrite:'Replace', overwrite_warn:'This replaces the current channels. The TV keeps a backup.',
+ no_channels:'No channels yet', no_sources:'No sources', empty_hint:'Add a channel or import an m3u playlist to begin.',
+ v_hd:'HD smooth', v_smooth:'Smooth', v_slow:'Slow', v_unusable:'Too slow', v_failed:'Unreachable',
+ v_encrypted:'Encrypted', speed_hint:'Measured on the TV; playback still decides whether it decodes.',
+ no_url:'Enter a source URL', no_name:'Enter a name', imported:'Imported {c} channels and {s} sources',
+ json_imported:'Channels replaced', source_pool:'Source pool', pick_pool:'Pick an imported source',
+ manual:'Manual', test_running:'Testing {done}/{total}', test_done:'Test finished', error:'Failed',
+ lang:'Language', first_url:'First source URL', file:'Choose file', from_url:'From URL',
+ selected_n:'{n} selected', all_sources:'All sources', not_tested:'Not tested', retest:'Check again',
+ apply:'Apply', progress:'Working…', import_url_ph:'https://example.com/list.m3u',
+ paste_ph:'#EXTM3U…', file_hint:'m3u, m3u8 or txt, up to 5 MB', json_url_ph:'URL of a JSON file',
+ sources:'Sources', source:'Source', current_badge:'current', err_channel_exists:'That channel already exists',
+ err_duplicate:'That source is already in the channel', err_last_source:'A channel needs a source; delete the channel instead',
+ err_preview:'The preview expired; preview again', err_none:'Nothing is selected', err_running:'A test is already running',
+ err_json:'Bad JSON; the current channels were not changed', err_playlist:'No usable channels found',
+ err_url:'Bad URL', err_name:'Name cannot be empty', err_too_large:'File too large (max 5 MB)',
+ err_empty:'Choose a file or enter a URL/text', n_timeout:'timeout', n_http:'HTTP error',
+ n_html:'a web page, not video', n_no_segment:'no segment found', n_error:'connection failed',
+ n_playlist_depth:'too many nested playlists'
+},
+ru: {
+ title:'Каналы', subtitle:'{n} каналов · изменения сразу на телевизоре', add_channel:'Добавить канал',
+ import:'Импорт m3u', import_json:'Импорт JSON', export:'Экспорт', refresh:'Обновить', channels:'Каналы',
+ sources_count:'Источников: {n}', disabled:'Выкл.', current:'В эфире', set_current:'Включить этот источник',
+ rename:'Переименовать', delete:'Удалить', up:'Выше', down:'Ниже', expand:'Показать источники',
+ collapse:'Скрыть источники', add_source:'Добавить источник', test:'Проверить', testing:'Проверка…',
+ test_on_tv:'Воспроизведение на телевизоре. Результаты — на панели с QR-кодом.',
+ test_channel:'Проверить канал', test_all:'Проверить все', url:'Адрес источника', label:'Метка',
+ label_ph:'например: дом', url_ph:'http://…', name:'Название канала', name_ph:'Название канала',
+ save:'Сохранить', cancel:'Отмена', close:'Закрыть', confirm:'Подтвердить', delete_channel:'Удалить канал',
+ delete_source:'Удалить источник', delete_channel_q:'Удалить «{name}»?',
+ delete_channel_hint:'Канал исчезнет из списка, но его источники останутся в пуле и их можно добавить другим каналам.',
+ delete_source_q:'Удалить этот источник?', delete_source_hint:'Адрес останется в пуле источников.',
+ import_title:'Импорт m3u', import_file:'Файл', import_url:'URL', import_paste:'Вставить',
+ preview:'Предпросмотр', select_all:'Выбрать все', select_none:'Снять выбор', new_channel:'Новый канал',
+ merge_into:'В «{name}»', duplicate:'Уже есть', apply_import:'Импортировать выбранные',
+ import_json_hint:'Заменяет весь список каналов и пул источников. Резервная копия создаётся автоматически.',
+ overwrite:'Заменить', overwrite_warn:'Текущие каналы будут заменены. Телевизор сохранит резервную копию.',
+ no_channels:'Каналов пока нет', no_sources:'Нет источников', empty_hint:'Добавьте канал или импортируйте плейлист m3u.',
+ v_hd:'HD без буферизации', v_smooth:'Стабильно', v_slow:'Медленно', v_unusable:'Слишком медленно',
+ v_failed:'Недоступен', v_encrypted:'Зашифрован', speed_hint:'Скорость измерена на телевизоре; декодирование проверяется воспроизведением.',
+ no_url:'Укажите адрес источника', no_name:'Укажите название', imported:'Импортировано каналов: {c}, источников: {s}',
+ json_imported:'Каналы заменены', source_pool:'Пул источников', pick_pool:'Выбрать из пула',
+ manual:'Вручную', test_running:'Проверка {done}/{total}', test_done:'Проверка завершена', error:'Ошибка',
+ lang:'Язык', first_url:'Адрес первого источника', file:'Выбрать файл', from_url:'Из URL',
+ selected_n:'Выбрано: {n}', all_sources:'Все источники', not_tested:'Не проверен', retest:'Проверить снова',
+ apply:'Применить', progress:'Обработка…', import_url_ph:'https://example.com/list.m3u',
+ paste_ph:'#EXTM3U…', file_hint:'m3u, m3u8 или txt, до 5 МБ', json_url_ph:'URL файла JSON',
+ sources:'Источники', source:'Источник', current_badge:'текущий', err_channel_exists:'Такой канал уже есть',
+ err_duplicate:'Этот источник уже есть в канале', err_last_source:'Нельзя удалить последний источник — удалите канал',
+ err_preview:'Предпросмотр устарел; повторите', err_none:'Ничего не выбрано', err_running:'Проверка уже идёт',
+ err_json:'Неверный JSON; каналы не изменены', err_playlist:'Не найдено подходящих каналов',
+ err_url:'Неверный адрес', err_name:'Название не может быть пустым', err_too_large:'Файл слишком большой (до 5 МБ)',
+ err_empty:'Выберите файл или введите URL/текст', n_timeout:'таймаут', n_http:'ошибка HTTP',
+ n_html:'вернулась веб-страница, а не видео', n_no_segment:'сегмент не найден', n_error:'нет соединения',
+ n_playlist_depth:'слишком много вложенных плейлистов'
+},
+uk: {
+ title:'Канали', subtitle:'{n} каналів · зміни одразу на телевізорі', add_channel:'Додати канал',
+ import:'Імпорт m3u', import_json:'Імпорт JSON', export:'Експорт', refresh:'Оновити', channels:'Канали',
+ sources_count:'Джерел: {n}', disabled:'Вимк.', current:'У ефірі', set_current:'Увімкнути це джерело',
+ rename:'Перейменувати', delete:'Видалити', up:'Вище', down:'Нижче', expand:'Показати джерела',
+ collapse:'Сховати джерела', add_source:'Додати джерело', test:'Перевірити', testing:'Перевірка…',
+ test_on_tv:'Відтворення на телевізорі. Результати — на панелі з QR-кодом.',
+ test_channel:'Перевірити канал', test_all:'Перевірити все', url:'Адреса джерела', label:'Позначка',
+ label_ph:'наприклад: дім', url_ph:'http://…', name:'Назва каналу', name_ph:'Назва каналу',
+ save:'Зберегти', cancel:'Скасувати', close:'Закрити', confirm:'Підтвердити', delete_channel:'Видалити канал',
+ delete_source:'Видалити джерело', delete_channel_q:'Видалити «{name}»?',
+ delete_channel_hint:'Канал зникне зі списку, але його джерела залишаться у пулі й їх можна додати іншим каналам.',
+ delete_source_q:'Видалити це джерело?', delete_source_hint:'Адреса залишиться в пулі джерел.',
+ import_title:'Імпорт m3u', import_file:'Файл', import_url:'URL', import_paste:'Вставити',
+ preview:'Попередній перегляд', select_all:'Вибрати все', select_none:'Зняти вибір', new_channel:'Новий канал',
+ merge_into:'У «{name}»', duplicate:'Уже є', apply_import:'Імпортувати вибрані',
+ import_json_hint:'Замінює весь список каналів і пул джерел. Резервна копія створюється автоматично.',
+ overwrite:'Замінити', overwrite_warn:'Поточні канали буде замінено. Телевізор збереже резервну копію.',
+ no_channels:'Каналів ще немає', no_sources:'Немає джерел', empty_hint:'Додайте канал або імпортуйте плейлист m3u.',
+ v_hd:'HD без буферизації', v_smooth:'Стабільно', v_slow:'Повільно', v_unusable:'Занадто повільно',
+ v_failed:'Недоступний', v_encrypted:'Зашифрований', speed_hint:'Швидкість виміряно на телевізорі; декодування перевіряється відтворенням.',
+ no_url:'Вкажіть адресу джерела', no_name:'Вкажіть назву', imported:'Імпортовано каналів: {c}, джерел: {s}',
+ json_imported:'Канали замінено', source_pool:'Пул джерел', pick_pool:'Вибрати з пулу',
+ manual:'Вручну', test_running:'Перевірка {done}/{total}', test_done:'Перевірку завершено', error:'Помилка',
+ lang:'Мова', first_url:'Адреса першого джерела', file:'Вибрати файл', from_url:'З URL',
+ selected_n:'Вибрано: {n}', all_sources:'Усі джерела', not_tested:'Не перевірено', retest:'Перевірити ще раз',
+ apply:'Застосувати', progress:'Обробка…', import_url_ph:'https://example.com/list.m3u',
+ paste_ph:'#EXTM3U…', file_hint:'m3u, m3u8 або txt, до 5 МБ', json_url_ph:'URL файлу JSON',
+ sources:'Джерела', source:'Джерело', current_badge:'поточне', err_channel_exists:'Такий канал уже є',
+ err_duplicate:'Це джерело вже є в каналі', err_last_source:'Не можна видалити останнє джерело — видаліть канал',
+ err_preview:'Попередній перегляд застарів; повторіть', err_none:'Нічого не вибрано', err_running:'Перевірка вже йде',
+ err_json:'Невірний JSON; канали не змінено', err_playlist:'Не знайдено придатних каналів',
+ err_url:'Невірна адреса', err_name:'Назва не може бути порожньою', err_too_large:'Файл завеликий (до 5 МБ)',
+ err_empty:'Виберіть файл або введіть URL/текст', n_timeout:'тайм-аут', n_http:'помилка HTTP',
+ n_html:'повернулася веб-сторінка, а не відео', n_no_segment:'сегмент не знайдено', n_error:'немає з’єднання',
+ n_playlist_depth:'забагато вкладених плейлистів'
+},
+kk: {
+ title:'Арналар', subtitle:'{n} арна · сақтаған соң теледидарда бірден жаңарады', add_channel:'Арна қосу',
+ import:'m3u импорты', import_json:'JSON импорты', export:'Экспорт', refresh:'Жаңарту', channels:'Арналар',
+ sources_count:'{n} дереккөз', disabled:'Өшірулі', current:'Ойнап жатыр', set_current:'Осы дереккөзді қосу',
+ rename:'Атын өзгерту', delete:'Жою', up:'Жоғары', down:'Төмен', expand:'Дереккөздерді көрсету',
+ collapse:'Дереккөздерді жасыру', add_source:'Дереккөз қосу', test:'Тексеру', testing:'Тексерілуде…',
+ test_on_tv:'Теледидарда ойнатылуда. Нәтижелер QR панелінде.',
+ test_channel:'Арнаны тексеру', test_all:'Барлығын тексеру', url:'Дереккөз мекенжайы', label:'Белгі',
+ label_ph:'мысалы: үй', url_ph:'http://…', name:'Арна аты', name_ph:'Арна атын енгізіңіз',
+ save:'Сақтау', cancel:'Болдырмау', close:'Жабу', confirm:'Растау', delete_channel:'Арнаны жою',
+ delete_source:'Дереккөзді жою', delete_channel_q:'«{name}» жойылсын ба?',
+ delete_channel_hint:'Арна тізімнен жойылады, бірақ дереккөздері пулда қалады және оларды басқа арналарға қосуға болады.',
+ delete_source_q:'Осы дереккөз жойылсын ба?', delete_source_hint:'Мекенжай дереккөздер пулында қалады.',
+ import_title:'m3u импорты', import_file:'Файл', import_url:'URL', import_paste:'Қою',
+ preview:'Алдын ала қарау', select_all:'Барлығын таңдау', select_none:'Таңдауды алу', new_channel:'Жаңа арна',
+ merge_into:'«{name}» ішіне', duplicate:'Бұрыннан бар', apply_import:'Таңдалғандарды импорттау',
+ import_json_hint:'Барлық арна тізімін және дереккөздер пулын ауыстырады. Сақтық көшірме автоматты түрде жасалады.',
+ overwrite:'Ауыстыру', overwrite_warn:'Ағымдағы арналар ауыстырылады. Теледидар сақтық көшірме жасайды.',
+ no_channels:'Әзірге арна жоқ', no_sources:'Дереккөз жоқ', empty_hint:'Арна қосыңыз немесе m3u плейлистін импорттаңыз.',
+ v_hd:'HD тежелусіз', v_smooth:'Тұрақты', v_slow:'Баяу', v_unusable:'Тым баяу',
+ v_failed:'Қолжетімсіз', v_encrypted:'Шифрланған', speed_hint:'Жылдамдық теледидарда өлшенді; декодтау мүмкіндігі ойнату арқылы тексеріледі.',
+ no_url:'Дереккөз мекенжайын енгізіңіз', no_name:'Атын енгізіңіз', imported:'{c} арна, {s} дереккөз импортталды',
+ json_imported:'Арналар ауыстырылды', source_pool:'Дереккөздер пулы', pick_pool:'Импортталған дереккөзді таңдау',
+ manual:'Қолмен', test_running:'Тексерілуде {done}/{total}', test_done:'Тексеру аяқталды', error:'Қате',
+ lang:'Тіл', first_url:'Бірінші дереккөз мекенжайы', file:'Файл таңдау', from_url:'URL-ден',
+ selected_n:'{n} таңдалды', all_sources:'Барлық дереккөз', not_tested:'Тексерілмеген', retest:'Қайта тексеру',
+ apply:'Қолдану', progress:'Өңделуде…', import_url_ph:'https://example.com/list.m3u',
+ paste_ph:'#EXTM3U…', file_hint:'m3u, m3u8 немесе txt, 5 МБ-қа дейін', json_url_ph:'JSON файлының URL-і',
+ sources:'Дереккөздер', source:'Дереккөз', current_badge:'ағымдағы', err_channel_exists:'Бұл арна бұрыннан бар',
+ err_duplicate:'Бұл дереккөз арнада бұрыннан бар', err_last_source:'Соңғы дереккөзді жоюға болмайды — арнаны жойыңыз',
+ err_preview:'Алдын ала қарау ескірді; қайталаңыз', err_none:'Ештеңе таңдалмаған', err_running:'Тексеру жүріп жатыр',
+ err_json:'JSON дұрыс емес; арналар өзгерген жоқ', err_playlist:'Жарамды арна табылмады',
+ err_url:'Мекенжай дұрыс емес', err_name:'Аты бос болмауы керек', err_too_large:'Файл тым үлкен (5 МБ-қа дейін)',
+ err_empty:'Файл таңдаңыз немесе URL/мәтін енгізіңіз', n_timeout:'уақыт бітті', n_http:'HTTP қатесі',
+ n_html:'бейне емес, веб-бет қайтты', n_no_segment:'сегмент табылмады', n_error:'қосылу сәтсіз',
+ n_playlist_depth:'тізімдер тым терең'
+}
+};
+const LANGS = Object.keys(TEXTS);
+const LANG = (() => {
+  const asked = new URLSearchParams(location.search).get('lang');
+  let saved = null;
+  try { saved = localStorage.getItem('aerial-lang'); } catch (e) {}
+  const prefs = [asked, saved, ...(navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || ''])];
+  for (const l of prefs) { if (!l) continue; const c = String(l).toLowerCase().split('-')[0]; if (LANGS.includes(c)) return c; }
+  return 'en';
+})();
+function t(key, vars) {
+  let s = TEXTS[LANG][key] || TEXTS.en[key] || TEXTS.zh[key] || key;
+  if (vars) for (const k in vars) s = s.split('{' + k + '}').join(vars[k]);
+  return s;
+}
+const base = location.pathname.replace(/\/?$/, '/');
+const $ = (s, r) => (r || document).querySelector(s);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const ERR = {
+  'channel exists':'err_channel_exists', 'duplicate source':'err_duplicate', 'last source':'err_last_source',
+  'preview expired':'err_preview', 'none selected':'err_none', 'test running':'err_running',
+  'bad json':'err_json', 'no entries':'err_playlist', 'bad url':'err_url', 'missing name':'err_name',
+  'too large':'err_too_large', 'no playlist':'err_empty', 'no json':'err_empty',
+  'nothing to test':'err_empty', 'no sources':'err_empty', 'bad source':'err_playlist'
+};
+function errText(msg) { return ERR[msg] ? t(ERR[msg]) : (msg || t('error')); }
+
+let state = { channels: [], current: { channel: -1, url: '' }, pool: [] };
+let expanded = new Set();
+const tests = new Map();
+let testJob = null;
+let busyCount = 0;
+
+function busy(on) {
+  busyCount += on ? 1 : -1;
+  if (busyCount < 0) busyCount = 0;
+  $('#progress').hidden = busyCount === 0;
+}
+function toast(msg) {
+  const box = $('#toast'); box.textContent = msg; box.classList.add('on');
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => box.classList.remove('on'), 2200);
+}
+async function req(path, opts) {
+  const r = await fetch(base + path, opts || {});
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+  return data;
+}
+function post(path, body) {
+  return req(path, body ? { method: 'POST', body: new URLSearchParams(body) } : { method: 'POST' });
+}
+function get(path) { return req(path); }
+async function act(fn) {
+  busy(true);
+  try { const next = await fn(); if (next && next.channels) state = next; render(); return next; }
+  catch (e) { toast(errText(e.message)); }
+  finally { busy(false); }
+}
+function reload() { return get('api/state').then(s => { state = s; render(); }).catch(e => toast(errText(e.message))); }
+
+function applyStatic() {
+  document.documentElement.lang = LANG;
+  document.querySelectorAll('[data-i18n]').forEach(e => e.textContent = t(e.dataset.i18n));
+  $('#subtitle').textContent = t('subtitle', { n: state.channels.length });
+  $('#hint').textContent = t('speed_hint');
+  $('#lang').value = LANG;
+}
+function testKey(ci, si) { return ci + ':' + si; }
+function speedClass(r) {
+  if (!r || r.pending) return '';
+  if (r.verdict === 'hd' || r.verdict === 'smooth') return 'good';
+  if (r.verdict === 'slow' || r.verdict === 'encrypted') return 'slow';
+  return 'bad';
+}
+function speedText(r) {
+  if (!r) return '';
+  if (r.pending) return t('testing');
+  if (r.verdict === 'failed') {
+    const note = r.note && t('n_' + r.note) !== 'n_' + r.note ? ' · ' + t('n_' + r.note) : '';
+    return t('v_failed') + note;
+  }
+  const name = t('v_' + r.verdict);
+  const speed = r.mbps == null ? '' : ' · ' + Number(r.mbps).toFixed(1) + ' Mbps';
+  const note = r.note && r.note.indexOf('encrypted') >= 0 && r.verdict !== 'encrypted' ? ' · ' + t('v_encrypted') : '';
+  return name + speed + note;
+}
+function sourceRow(ch, ci, s, si) {
+  const cur = state.current.channel === ci && state.current.url === s.url;
+  const r = tests.get(testKey(ci, si));
+  return '<div class="src' + (s.enabled ? '' : ' off') + '">' +
+    '<div class="srcinfo">' +
+      '<div class="slabel">' + esc(s.label || t('manual')) + (cur ? ' · <span class="tag current">' + t('current_badge') + '</span>' : '') + '</div>' +
+      '<div class="surl" title="' + esc(s.url) + '">' + esc(s.url) + '</div>' +
+      (r ? '<div class="speed ' + speedClass(r) + '">' + esc(speedText(r)) + '</div>' : '') +
+    '</div>' +
+    '<div class="srcside">' +
+      '<input type="checkbox" class="switch" data-switch="source" data-ci="' + ci + '" data-si="' + si + '"' + (s.enabled ? ' checked' : '') + ' aria-label="' + esc(t('sources')) + '">' +
+      '<div class="srcacts">' +
+        (cur ? '' : '<button class="btn small" data-act="current" data-ci="' + ci + '" data-si="' + si + '">' + t('set_current') + '</button>') +
+        '<button class="btn small" data-act="test-source" data-ci="' + ci + '" data-si="' + si + '">' + (r && !r.pending ? t('retest') : t('test')) + '</button>' +
+        '<button class="btn small icon" data-act="source-up" data-ci="' + ci + '" data-si="' + si + '" aria-label="' + esc(t('up')) + '">↑</button>' +
+        '<button class="btn small icon" data-act="source-down" data-ci="' + ci + '" data-si="' + si + '" aria-label="' + esc(t('down')) + '">↓</button>' +
+        '<button class="btn small danger" data-act="delete-source" data-ci="' + ci + '" data-si="' + si + '">' + t('delete') + '</button>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+}
+function channelCard(ch, ci) {
+  const open = expanded.has(ci);
+  const isCurrent = state.current.channel === ci;
+  return '<article class="card' + (isCurrent ? ' current' : '') + (ch.enabled ? '' : ' off') + '">' +
+    '<div class="chead">' +
+      '<button class="cname" data-act="expand" data-ci="' + ci + '"><b>' + esc(ch.name) + '</b><span>' + t('sources_count', { n: ch.sources.length }) + (ch.enabled ? '' : ' · ' + t('disabled')) + '</span></button>' +
+      '<input type="checkbox" class="switch" data-switch="channel" data-ci="' + ci + '"' + (ch.enabled ? ' checked' : '') + ' aria-label="' + esc(t('channels')) + '">' +
+    '</div>' +
+    '<div class="badges">' +
+      (isCurrent ? '<span class="tag current">' + t('current') + '</span>' : '') +
+      (!ch.sources.length ? '<span class="tag bad">' + t('no_sources') + '</span>' : '') +
+    '</div>' +
+    '<div class="cactions">' +
+      '<button class="btn small" data-act="rename" data-ci="' + ci + '">' + t('rename') + '</button>' +
+      '<button class="btn small" data-act="test-channel" data-ci="' + ci + '">' + t('test_channel') + '</button>' +
+      '<button class="btn small icon" data-act="up" data-ci="' + ci + '" aria-label="' + esc(t('up')) + '">↑</button>' +
+      '<button class="btn small icon" data-act="down" data-ci="' + ci + '" aria-label="' + esc(t('down')) + '">↓</button>' +
+      '<button class="btn small danger" data-act="delete-channel" data-ci="' + ci + '">' + t('delete') + '</button>' +
+      '<button class="btn small link" data-act="expand" data-ci="' + ci + '">' + (open ? t('collapse') : t('expand')) + '</button>' +
+    '</div>' +
+    (open ? '<div class="sources">' + ch.sources.map((s, si) => sourceRow(ch, ci, s, si)).join('') +
+      '<button class="btn small" data-act="add-source" data-ci="' + ci + '">+ ' + t('add_source') + '</button>' +
+      '<button class="btn small" data-act="test-all" data-ci="' + ci + '">' + t('test_channel') + '</button>' +
+      '</div>' : '') +
+  '</article>';
+}
+function render() {
+  applyStatic();
+  const list = $('#channels');
+  list.innerHTML = state.channels.map(channelCard).join('');
+  $('#empty').hidden = state.channels.length > 0;
+}
+$('#lang').innerHTML = LANGS.map(l => '<option value="' + l + '">' + NAMES[l] + '</option>').join('');
+$('#lang').onchange = e => {
+  try { localStorage.setItem('aerial-lang', e.target.value); } catch (err) {}
+  const u = new URL(location.href); u.searchParams.set('lang', e.target.value);
+  location.replace(u.toString());
+};
+
+$('#channels').addEventListener('change', e => {
+  const el = e.target.closest('[data-switch]');
+  if (!el) return;
+  const ci = +el.dataset.ci;
+  if (el.dataset.switch === 'channel') {
+    act(() => post('api/channel/enable', { index: ci, enabled: el.checked ? '1' : '0' }));
+  } else {
+    act(() => post('api/source/enable', { channel: ci, index: +el.dataset.si, enabled: el.checked ? '1' : '0' }));
+  }
+});
+$('#channels').addEventListener('click', e => {
+  const el = e.target.closest('[data-act]');
+  if (!el) return;
+  const actName = el.dataset.act, ci = +el.dataset.ci, si = +el.dataset.si;
+  const ch = state.channels[ci];
+  if (actName === 'expand') {
+    expanded.has(ci) ? expanded.delete(ci) : expanded.add(ci);
+    render();
+  } else if (actName === 'rename') {
+    renameSheet(ci);
+  } else if (actName === 'delete-channel') {
+    deleteChannelSheet(ci);
+  } else if (actName === 'up' && ci > 0) {
+    act(() => post('api/channel/move', { from: ci, to: ci - 1 }));
+  } else if (actName === 'down' && ci < state.channels.length - 1) {
+    act(() => post('api/channel/move', { from: ci, to: ci + 1 }));
+  } else if (actName === 'test-channel' || actName === 'test-all') {
+    runTest({ channel: ci });
+  } else if (actName === 'add-source') {
+    sourceSheet(ci);
+  } else if (actName === 'current') {
+    act(() => post('api/source/current', { channel: ci, index: si }));
+  } else if (actName === 'source-up' && si > 0) {
+    act(() => post('api/source/move', { channel: ci, from: si, to: si - 1 }));
+  } else if (actName === 'source-down' && si < ch.sources.length - 1) {
+    act(() => post('api/source/move', { channel: ci, from: si, to: si + 1 }));
+  } else if (actName === 'delete-source') {
+    deleteSourceSheet(ci, si);
+  } else if (actName === 'test-source') {
+    playOnTv(ci, si);
+  }
+});
+async function playOnTv(ci, si) {
+  try {
+    await post('api/source/test-play', { channel: ci, source: si });
+    toast(t('test_on_tv'));
+  } catch (e) { toast(errText(e.message)); }
+}
+
+const sheet = $('#sheet');
+function closeSheet() {
+  sheet.classList.remove('on');
+  sheet.setAttribute('aria-hidden', 'true');
+  $('#sheetbody').innerHTML = '';
+  $('#sheetacts').innerHTML = '';
+}
+$('#sheetclose').onclick = closeSheet;
+sheet.addEventListener('click', e => { if (e.target === sheet) closeSheet(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet(); });
+function openSheet(title, html, actions) {
+  $('#sheettitle').textContent = title;
+  $('#sheetbody').innerHTML = html;
+  const box = $('#sheetacts'); box.innerHTML = '';
+  (actions || [{ label: t('close'), kind: '', fn: closeSheet }]).forEach(a => {
+    const b = document.createElement('button');
+    b.className = 'btn ' + (a.kind || '');
+    b.textContent = a.label;
+    if (a.disabled) b.disabled = true;
+    b.onclick = a.fn;
+    box.appendChild(b);
+  });
+  sheet.classList.add('on'); sheet.setAttribute('aria-hidden', 'false');
+  const first = $('#sheetbody input, #sheetbody select, #sheetbody textarea');
+  if (first) setTimeout(() => first.focus(), 60);
+}
+function field(id, label, value, ph, type) {
+  return '<div class="field"><label for="' + id + '">' + esc(label) + '</label><input id="' + id + '" type="' + (type || 'text') + '" value="' + esc(value || '') + '" placeholder="' + esc(ph || '') + '"></div>';
+}
+function textField(id, label, value, ph) {
+  return '<div class="field"><label for="' + id + '">' + esc(label) + '</label><textarea id="' + id + '" placeholder="' + esc(ph || '') + '">' + esc(value || '') + '</textarea></div>';
+}
+
+$('#add').onclick = () => {
+  openSheet(t('add_channel'),
+    field('aname', t('name'), '', t('name_ph')) +
+    field('aurl', t('first_url'), '', t('url_ph'), 'url') +
+    field('alabel', t('label'), '', t('label_ph')),
+    [
+      { label: t('cancel'), fn: closeSheet },
+      { label: t('save'), kind: 'primary', fn: async () => {
+          const name = $('#aname').value.trim(), url = $('#aurl').value.trim(), label = $('#alabel').value.trim();
+          if (!name) return toast(t('no_name'));
+          if (!url) return toast(t('no_url'));
+          const r = await act(() => post('api/channel/add', { name, url, label }));
+          if (r) closeSheet();
+        } }
+    ]);
+};
+function renameSheet(ci) {
+  const ch = state.channels[ci];
+  openSheet(t('rename'), field('rname', t('name'), ch.name, t('name_ph')),
+    [
+      { label: t('cancel'), fn: closeSheet },
+      { label: t('save'), kind: 'primary', fn: async () => {
+          const name = $('#rname').value.trim();
+          if (!name) return toast(t('no_name'));
+          const r = await act(() => post('api/channel/rename', { index: ci, name }));
+          if (r) closeSheet();
+        } }
+    ]);
+}
+function deleteChannelSheet(ci) {
+  const ch = state.channels[ci];
+  openSheet(t('delete_channel'),
+    '<p class="note">' + esc(t('delete_channel_q', { name: ch.name })) + '</p><p class="note">' + esc(t('delete_channel_hint')) + '</p>',
+    [
+      { label: t('cancel'), fn: closeSheet },
+      { label: t('delete'), kind: 'danger', fn: async () => {
+          const r = await act(() => post('api/channel/delete', { index: ci, confirm: '1' }));
+          if (r) closeSheet();
+        } }
+    ]);
+}
+function deleteSourceSheet(ci, si) {
+  const s = state.channels[ci].sources[si];
+  openSheet(t('delete_source'),
+    '<p class="note">' + esc(t('delete_source_q')) + '</p><div class="note">' + esc(s.url) + '</div><p class="note">' + esc(t('delete_source_hint')) + '</p>',
+    [
+      { label: t('cancel'), fn: closeSheet },
+      { label: t('delete'), kind: 'danger', fn: async () => {
+          const r = await act(() => post('api/source/delete', { channel: ci, index: si, confirm: '1' }));
+          if (r) closeSheet();
+        } }
+    ]);
+}
+function poolOptions() {
+  return '<option value="">' + esc(t('pick_pool')) + '</option>' + state.pool.map((s, i) =>
+    '<option value="' + i + '">' + esc((s.label || t('manual')) + ' · ' + s.url) + '</option>').join('');
+}
+function sourceSheet(ci) {
+  openSheet(t('add_source'),
+    '<div class="field"><label for="spool">' + esc(t('source_pool')) + '</label><select id="spool">' + poolOptions() + '</select></div>' +
+    field('surl', t('url'), '', t('url_ph'), 'url') +
+    field('slabel', t('label'), '', t('label_ph')),
+    [
+      { label: t('cancel'), fn: closeSheet },
+      { label: t('save'), kind: 'primary', fn: async () => {
+          const url = $('#surl').value.trim(), label = $('#slabel').value.trim();
+          if (!url) return toast(t('no_url'));
+          const r = await act(() => post('api/source/add', { channel: ci, url, label }));
+          if (r) closeSheet();
+        } }
+    ]);
+  $('#spool').onchange = e => {
+    const s = state.pool[+e.target.value];
+    if (s) { $('#surl').value = s.url; $('#slabel').value = s.label || ''; }
+  };
+}
+
+function importSheet() {
+  openSheet(t('import_title'),
+    '<div class="field"><label for="ifile">' + esc(t('import_file')) + '</label><input id="ifile" type="file" accept=".m3u,.m3u8,.txt,audio/x-mpegurl,application/vnd.apple.mpegurl,text/plain"></div>' +
+    '<div class="note">' + esc(t('file_hint')) + '</div>' +
+    '<div class="field"><label for="iurl">' + esc(t('import_url')) + '</label><input id="iurl" type="url" placeholder="' + esc(t('import_url_ph')) + '"></div>' +
+    textField('itext', t('import_paste'), '', t('paste_ph')) +
+    '<div id="pvwrap"></div>',
+    [
+      { label: t('cancel'), fn: closeSheet },
+      { label: t('preview'), fn: () => previewImport() },
+      { label: t('apply_import'), kind: 'primary', fn: () => applyImport(), disabled: true }
+    ]);
+}
+async function previewImport() {
+  const file = $('#ifile').files[0];
+  const url = $('#iurl').value.trim();
+  const text = $('#itext').value;
+  busy(true);
+  try {
+    let res;
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) throw new Error('too large');
+      const fd = new FormData(); fd.append('file', file);
+      const r = await fetch(base + 'api/import/preview', { method: 'POST', body: fd });
+      res = await r.json();
+      if (!r.ok) throw new Error(res.error || ('HTTP ' + r.status));
+    } else if (url) {
+      res = await post('api/import/preview', { url });
+    } else if (text.trim()) {
+      res = await post('api/import/preview', { text, name: 'playlist.m3u' });
+    } else {
+      throw new Error('no playlist');
+    }
+    const wrap = $('#pvwrap');
+    wrap.innerHTML = '<div class="note">' + esc(res.label) + '</div>' +
+      '<div class="pv" id="pv">' + res.items.map((it, i) =>
+        '<label class="pvitem"><input type="checkbox" data-i="' + i + '"' + (it.duplicate ? '' : ' checked') + '>' +
+        '<div><b>' + esc(it.name) + '</b>' +
+        (it.duplicate ? '<span class="tag">' + t('duplicate') + '</span>' :
+          it.target ? '<span class="tag">' + esc(t('merge_into', { name: it.target })) + '</span>' :
+          '<span class="tag ok">' + t('new_channel') + '</span>') +
+        '<div class="surl" title="' + esc(it.url) + '">' + esc(it.url) + '</div></div></label>').join('') + '</div>' +
+      '<div class="cactions"><button class="btn small" id="pv_all">' + t('select_all') + '</button>' +
+      '<button class="btn small" id="pv_none">' + t('select_none') + '</button></div>';
+    $('#pv_all').onclick = () => document.querySelectorAll('#pv input').forEach(x => x.checked = true);
+    $('#pv_none').onclick = () => document.querySelectorAll('#pv input').forEach(x => x.checked = false);
+    const applyBtn = [...document.querySelectorAll('#sheetacts .btn')].find(b => b.textContent === t('apply_import'));
+    if (applyBtn) applyBtn.disabled = false;
+    previewImport.id = res.id;
+  } catch (e) {
+    toast(errText(e.message));
+  } finally { busy(false); }
+}
+async function applyImport() {
+  if (!previewImport.id) return toast(t('err_empty'));
+  const selected = [...document.querySelectorAll('#pv input:checked')].map(x => +x.dataset.i);
+  if (!selected.length) return toast(t('err_none'));
+  const r = await act(() => post('api/import/apply', { id: previewImport.id, selected: selected.join(',') }));
+  if (r) {
+    closeSheet();
+    toast(t('imported', { c: r.addedChannels || 0, s: r.addedSources || 0 }));
+  }
+}
+$('#import').onclick = importSheet;
+
+function jsonSheet() {
+  openSheet(t('import_json'),
+    '<p class="note warn">' + esc(t('overwrite_warn')) + '</p><p class="note">' + esc(t('import_json_hint')) + '</p>' +
+    '<div class="field"><label for="jfile">' + esc(t('file')) + '</label><input id="jfile" type="file" accept=".json,application/json"></div>' +
+    '<div class="field"><label for="jurl">' + esc(t('from_url')) + '</label><input id="jurl" type="url" placeholder="' + esc(t('json_url_ph')) + '"></div>',
+    [
+      { label: t('cancel'), fn: closeSheet },
+      { label: t('overwrite'), kind: 'danger', fn: async () => {
+          const file = $('#jfile').files[0], url = $('#jurl').value.trim();
+          if (!file && !url) return toast(t('err_empty'));
+          busy(true);
+          try {
+            let res;
+            if (file) {
+              if (file.size > 5 * 1024 * 1024) throw new Error('too large');
+              const fd = new FormData(); fd.append('file', file);
+              const r = await fetch(base + 'api/import/json?confirm=1', { method: 'POST', body: fd });
+              res = await r.json();
+              if (!r.ok) throw new Error(res.error || ('HTTP ' + r.status));
+            } else {
+              res = await post('api/import/json?confirm=1', { url });
+            }
+            state = res; closeSheet(); render(); toast(t('json_imported'));
+          } catch (e) { toast(errText(e.message)); }
+          finally { busy(false); }
+        } }
+    ]);
+}
+$('#json').onclick = jsonSheet;
+$('#exjson').onclick = () => { location.href = base + 'api/export/json'; };
+$('#exm3u').onclick = () => { location.href = base + 'api/export/m3u'; };
+
+async function runTest(body) {
+  if (testJob) return toast(t('err_running'));
+  busy(true);
+  try {
+    const res = await post('api/test/start', body);
+    testJob = { id: res.id, total: res.total, done: 0 };
+    pollTest();
+  } catch (e) { toast(errText(e.message)); }
+  finally { busy(false); }
+}
+async function pollTest() {
+  try {
+    const s = await get('api/test/status?id=' + encodeURIComponent(testJob.id));
+    testJob.total = s.total; testJob.done = s.done;
+    s.items.forEach(it => {
+      const key = testKey(it.channel, it.source);
+      tests.set(key, it.done ? it : { pending: true });
+    });
+    render();
+    if (!s.finished) setTimeout(pollTest, 750);
+    else { testJob = null; render(); toast(t('test_done')); }
+  } catch (e) {
+    testJob = null; toast(errText(e.message)); render();
+  }
+}
+
+applyStatic();
+reload();
+</script>
+</body>
+</html>

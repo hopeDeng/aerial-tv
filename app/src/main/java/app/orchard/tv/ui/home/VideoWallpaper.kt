@@ -1,3 +1,5 @@
+@file:androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+
 package app.orchard.tv.ui.home
 
 import android.graphics.Bitmap

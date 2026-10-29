@@ -1,6 +1,7 @@
 package app.orchard.tv
 
 import android.app.ActivityOptions
+import android.Manifest
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -19,6 +20,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.content.pm.PackageManager
 import android.view.Choreographer
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -31,6 +33,7 @@ import androidx.core.content.getSystemService
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.snapshotFlow
@@ -40,6 +43,7 @@ import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.core.content.ContextCompat
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -54,8 +58,11 @@ import app.orchard.tv.apps.SourceLooks
 import app.orchard.tv.apps.TileArtFactory
 import app.orchard.tv.guard.GuardSetup
 import app.orchard.tv.guard.HomeGuardService
+import app.orchard.tv.tv.TvController
+import app.orchard.tv.tv.TvWindow as TvWindowState
 import app.orchard.tv.ui.home.HomeScreen
 import app.orchard.tv.ui.home.LiveFilm
+import app.orchard.tv.ui.tv.TvOverlays
 import app.orchard.tv.ui.home.asFocusedTile
 import app.orchard.tv.ui.theme.LocalReducedMotion
 import app.orchard.tv.ui.home.TileFaces
@@ -87,6 +94,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 class MainActivity : ComponentActivity() {
 
     private val vm by viewModels<HomeViewModel>()
+    private lateinit var tv: TvController
 
     private val packageReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) = vm.reload()
@@ -188,6 +196,7 @@ class MainActivity : ComponentActivity() {
         AppNames.init(this)
         AerialSettings.init(this)
         Sounds.init(this)
+        tv = TvController(this, lifecycleScope).also { it.start() }
         val reducedMotion = Settings.Global.getFloat(contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
 
         // The home screen paints every pixel itself; a window background would be one more
@@ -221,15 +230,19 @@ class MainActivity : ComponentActivity() {
                 fontScale = LocalDensity.current.fontScale,
             )
             CompositionLocalProvider(LocalReducedMotion provides reducedMotion, LocalDensity provides canvas) {
-                HomeScreen(
-                    vm = vm,
-                    onLaunch = ::launch,
-                    onOpen = ::open,
-                    onAppInfo = { open(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", it, null)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) },
-                    onUninstall = { open(Intent(Intent.ACTION_DELETE, Uri.fromParts("package", it, null)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) },
-                    // Posted so the key-up of the Back press that started it does not end it at once.
-                    onStartScreensaver = { idleHandler.postDelayed({ startScreensaver(asked = true) }, 150) },
-                )
+                Box {
+                    HomeScreen(
+                        vm = vm,
+                        tv = tv,
+                        onLaunch = ::launch,
+                        onOpen = ::open,
+                        onAppInfo = { open(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", it, null)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) },
+                        onUninstall = { open(Intent(Intent.ACTION_DELETE, Uri.fromParts("package", it, null)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) },
+                        // Posted so the key-up of the Back press that started it does not end it at once.
+                        onStartScreensaver = { idleHandler.postDelayed({ startScreensaver(asked = true) }, 150) },
+                    )
+                    TvOverlays(tv)
+                }
             }
         }
         if (Build.VERSION.SDK_INT >= 29 && uhd > 1f) {
@@ -291,6 +304,7 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         if (locked) runCatching { unregisterReceiver(unlocked) }
         runCatching { unregisterReceiver(screenOnReceiver) }
+        if (::tv.isInitialized) tv.release()
         super.onDestroy()
     }
 
@@ -360,6 +374,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
             android.util.Log.i("Aerial", "$reason: opening ${intent.first}, what the TV starts on")
+            if (::tv.isInitialized) tv.onAppLaunched()
             openedAppSinceHome = true
             open(intent.second)
         }
@@ -447,7 +462,13 @@ class MainActivity : ComponentActivity() {
     // ---- Screensaver: Aerial's own, before the firmware's ad-carrying one can start ----
 
     private val idleHandler = Handler(Looper.getMainLooper())
-    private val showScreensaver = Runnable { startScreensaver(asked = false) }
+    private val showScreensaver = Runnable {
+        if (vm.screensaverVisible || !vm.resumed || vm.overlay != Overlay.None) return@Runnable
+        // The idle timer does not screensaver over a fullscreen channel; it reschedules.
+        if (tv.window == TvWindowState.Fullscreen) { restartIdleTimer(); return@Runnable }
+        if (tv.onIdle()) return@Runnable // focused on the live window: it went fullscreen instead
+        startScreensaver(asked = false)
+    }
 
     /**
      * [asked]: Back, or "Start now", rather than the idle timer.
@@ -458,6 +479,10 @@ class MainActivity : ComponentActivity() {
      * starts nothing on the timer, and Back starts the firmware's.
      */
     private fun startScreensaver(asked: Boolean) {
+        // Back or "Start now" never auto-fullscreens the live window: it stops to the icon first,
+        // and a panel closed on the way out does not ask for focus back.
+        tv.closePanels()
+        if (asked) tv.onManualScreensaver()
         if (Wallpapers.screensaver == ScreensaverMode.System) {
             if (asked && !SystemScreensaver.startFirmware(this)) DiagLog.i("no system screensaver to start")
             return
@@ -616,6 +641,9 @@ class MainActivity : ComponentActivity() {
             return
         }
         if (intent.hasCategory(Intent.CATEGORY_HOME) || intent.action == Intent.ACTION_MAIN) {
+            // Home while the live window fills the screen: Home means back to the grid, not to the
+            // icon's place in it.
+            if (tv.window == TvWindowState.Fullscreen) tv.exitFullscreen()
             // Since 1.11 Home Guard answers Home from an app by bringing Aerial back with this same
             // intent, so the intent alone cannot tell Home-on-Home from coming back from an app.
             vm.onHomePressed(resetFocus = !openedAppSinceHome)
@@ -688,6 +716,8 @@ class MainActivity : ComponentActivity() {
         HomeGuardService.onAerialResumed()
         Updates.onHomeResumed()
         vm.refreshSystem()
+        tv.onHomeResumed()
+        askTvStorage()
         // Back in front by any route (Home was handled in onNewIntent, which runs first; Back from
         // the app lands here directly), so the next Home press is a Home-on-Home again.
         openedAppSinceHome = false
@@ -697,10 +727,33 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * The set-top box writes its channel list to shared storage, which from Android 6 an app reads
+     * only after the owner says yes (the box with that file runs Android 8). Asked once: a denial is
+     * not repeated on every resume. tools/install.sh grants it the same way for a test device.
+     */
+    private fun askTvStorage() {
+        if (Build.VERSION.SDK_INT !in 23..32 || tv.prefs.storageAsked) return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) ==
+            PackageManager.PERMISSION_GRANTED
+        ) return
+        tv.prefs.storageAsked = true
+        readStorage.launch(Manifest.permission.READ_EXTERNAL_STORAGE)
+    }
+
+    private val readStorage = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (!granted || locked) return@registerForActivityResult
+        DiagLog.i("storage granted; reading the channel file")
+        tv.reloadIfChanged(force = true)
+    }
+
     override fun onPause() {
         super.onPause()
         if (locked) return
         vm.resumed = false
+        // Home is off screen, whatever put it there (an app we did not launch, the TV's own input,
+        // a dialog): live TV would play behind it, unheard, and hold a decoder the app may need.
+        tv.onAppLaunched()
         DiagLog.i("onPause")
         GuardSetup.setHomeInFront(this, false)
         HomeGuardService.onAerialPaused()
@@ -727,6 +780,7 @@ class MainActivity : ComponentActivity() {
             return
         }
         openedAppSinceHome = true
+        if (::tv.isInitialized) tv.onAppLaunched()
         // The stock launcher (Xiaomi's PatchWall, with the maker's own iQIYI / Mango content) opens
         // through the system Home action where it can; see HomeGuardService.openStockLauncher.
         if (HomeGuardService.isStockHome(app.packageName) &&
