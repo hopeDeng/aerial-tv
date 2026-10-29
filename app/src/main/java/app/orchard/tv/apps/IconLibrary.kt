@@ -9,7 +9,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.edit
-import app.orchard.tv.settings.AerialSettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -24,8 +23,9 @@ import java.net.URL
  * drawn from an app's own icon read rougher than other launchers' hand-made ones). The site keeps
  * an index of package → picture; Aerial reads it at most twice a day and downloads only the
  * pictures of apps installed on this TV, into files/library. A picture the owner chose on the
- * phone page (CustomIcons) still wins. Personalize turns the library on or off for every app; the
- * phone page can pick the library's picture or the app's own art for one app, whatever that says.
+ * phone page (CustomIcons) still wins. Every app with a picture here uses it, unless the phone page
+ * picked the app's own art for it. (Personalize had a switch for all apps at once until 1.55; with
+ * most apps picked one by one it seemed to do nothing, and it was dropped.)
  *
  * Only this object writes files/library, and it removes a file only when the index names a newer
  * picture for that app or drops the app.
@@ -67,18 +67,18 @@ object IconLibrary {
     /** The library's picture of [pkg] as stored, for the phone page; null without one. */
     fun file(pkg: String): File? = if (::dir.isInitialized) fileFor(pkg)?.takeIf { it.exists() } else null
 
-    /** Whether [pkg]'s tile uses the library: its own pick on the phone page, else Personalize's. */
+    /** Whether [pkg]'s tile uses the library: unless the phone page picked the app's own art. */
     fun uses(pkg: String): Boolean = when (pick(pkg)) {
         Pick.Library -> true
         Pick.Own -> false
-        null -> AerialSettings.iconLibrary
+        null -> true
     }
 
     private fun usable(pkg: String): File? = if (uses(pkg)) file(pkg) else null
 
     enum class Pick { Library, Own }
 
-    /** What the phone page picked for [pkg]; null to follow Personalize. */
+    /** What the phone page picked for [pkg]; null for the library. */
     fun pick(pkg: String): Pick? = when {
         !::prefs.isInitialized -> null
         pkg in prefs.getStringSet("use_library", emptySet())!! -> Pick.Library
@@ -102,7 +102,7 @@ object IconLibrary {
     /** The app's picture, or null. Off the main thread. */
     fun load(pkg: String): Bitmap? = usable(pkg)?.let { BitmapFactory.decodeFile(it.path) }
 
-    /** Called on the main thread when Personalize turns the library on or off, or [refresh] brought something new. */
+    /** Called on the main thread when a pick changed or [refresh] brought something new. */
     fun changed() {
         version++
     }

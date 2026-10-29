@@ -2,7 +2,7 @@
 # Give Home back to the TV's own launcher.
 #
 #   TV=<tv-ip> tools/restore.sh              # stop taking over Home, keep Aerial installed
-#   TV=<tv-ip> tools/restore.sh --uninstall  # and remove Aerial
+#   TV=<tv-ip> tools/restore.sh --uninstall  # and remove Aerial (and Aerial Lite)
 # If you disabled the stock launcher by hand, also: adb shell pm enable <its package>
 set -euo pipefail
 : "${TV:?set TV to the TV IP address}"
@@ -22,6 +22,8 @@ adb shell appops set "$PKG" GET_USAGE_STATS default >/dev/null 2>&1 || true
 adb shell appops set "$PKG" android:get_usage_stats default >/dev/null 2>&1 || true
 adb shell appops set "$PKG" APP_AUTO_START default >/dev/null 2>&1 || true   # TCL only
 adb shell appops set "$PKG" APP_ASSOC_START default >/dev/null 2>&1 || true
+adb shell appops set "$PKG" AUTO_START default >/dev/null 2>&1 || true   # FFALCON T966D5's names
+adb shell appops set "$PKG" ASSOC_START default >/dev/null 2>&1 || true
 adb shell am force-stop "$PKG"
 case "$(adb shell settings get secure screensaver_components | tr -d '\r')" in
   "$PKG"/*) adb shell settings put secure screensaver_components "$(adb shell settings get secure screensaver_default_component | tr -d '\r')" ;;
@@ -47,8 +49,14 @@ elif [ "$(adb shell getprop persist.vt.use_home_pkg | tr -d '\r')" = "$PKG" ] &&
 fi
 adb shell cmd role remove-role-holder --user 0 android.app.role.HOME "$PKG" >/dev/null 2>&1 || true
 
+# Aerial Lite (Android 4.x) takes over only as the home app the owner chose; nothing else to undo.
+LITE=app.orchard.tv.lite
+LITE_HERE=$(adb shell pm path "$LITE" 2>/dev/null | grep -c package: || true)
 if [ "${1:-}" = --uninstall ]; then
-  adb uninstall "$PKG"
+  adb shell pm path "$PKG" 2>/dev/null | grep -q package: && adb uninstall "$PKG"
+  [ "$LITE_HERE" = 0 ] || adb uninstall "$LITE"
+elif [ "$LITE_HERE" != 0 ]; then
+  echo "Aerial Lite stays the home screen while it is installed and chosen. Run with --uninstall, or on the TV: Settings > Apps > Aerial Lite > Clear defaults, then press Home and pick the TV's launcher."
 fi
 adb shell input keyevent KEYCODE_HOME
-echo "Home now: $(adb shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME | tail -n 1 | tr -d '\r')"
+echo "Home now: $(adb shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME -c android.intent.category.DEFAULT | tail -n 1 | tr -d '\r')"

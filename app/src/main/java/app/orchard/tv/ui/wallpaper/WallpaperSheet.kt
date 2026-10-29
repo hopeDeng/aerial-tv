@@ -78,13 +78,13 @@ import app.orchard.tv.wallpaper.PhoneServer
 import app.orchard.tv.wallpaper.AerialFormats
 import app.orchard.tv.wallpaper.AerialQuality
 import app.orchard.tv.wallpaper.ScreensaverMode
+import app.orchard.tv.system.SystemScreensaver
 import app.orchard.tv.wallpaper.Wallpaper
 import app.orchard.tv.wallpaper.WallpaperKind
 import app.orchard.tv.wallpaper.Wallpapers
 import app.orchard.tv.weather.Weather
 import app.orchard.tv.weather.WeatherKind
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
@@ -109,17 +109,13 @@ fun WallpaperSheet(
 
     BackHandler(enabled = visible, onBack = onDismiss)
 
-    // The phone page only listens while this sheet is up, plus a few minutes so an upload that is
-    // already under way can finish.
+    // The phone page listens all along (PhoneServer.listen); the address is read again each time,
+    // as the TV's may have changed.
     LaunchedEffect(visible) {
-        if (visible) {
-            val url = withContext(Dispatchers.IO) { PhoneServer.start(context) }
-            phoneUrl = url
-            qr = url?.let { withContext(Dispatchers.Default) { PhoneServer.qr(it).asImageBitmap() } }
-        } else {
-            delay(5 * 60 * 1000L)
-            withContext(Dispatchers.IO) { PhoneServer.stop() }
-        }
+        if (!visible) return@LaunchedEffect
+        val url = withContext(Dispatchers.IO) { PhoneServer.start(context) }
+        phoneUrl = url
+        qr = url?.let { withContext(Dispatchers.Default) { PhoneServer.qr(it).asImageBitmap() } }
     }
 
     AnimatedVisibility(visible = visible, enter = fadeIn(tween(220, easing = Motion.EaseOut)), exit = fadeOut(tween(180, easing = Motion.EaseOut)), modifier = Modifier.fillMaxSize()) {
@@ -154,8 +150,8 @@ fun WallpaperSheet(
                     Spacer(Modifier.height(16.dp))
                     SectionTitle(R.string.wp_wallpaper)
                     WallpaperRows()
-                    // Only for a wallpaper that moves: whether keys stop it.
-                    if (Wallpapers.moves()) Group { note ->
+                    // Only for the owner's videos: whether keys stop them. The aerial films always move.
+                    if (Wallpapers.isVideo()) Group { note ->
                         Choices(
                             R.string.st_play, stringResource(R.string.st_play_hint), note,
                             listOf(false to R.string.st_play_still, true to R.string.st_play_always),
@@ -179,6 +175,11 @@ fun WallpaperSheet(
                             AerialSettings.peekNextRow, AerialSettings::choosePeekNextRow,
                         )
                         Choices(
+                            R.string.st_columns, stringResource(R.string.st_columns_hint), note,
+                            AerialSettings.HOME_COLUMNS.map { it to it.toString() },
+                            AerialSettings.homeColumns, AerialSettings::chooseHomeColumns,
+                        )
+                        Choices(
                             R.string.st_plate, stringResource(R.string.st_plate_hint), note,
                             listOf(true to R.string.st_plate_glass, false to R.string.st_plate_none),
                             AerialSettings.homePlate, AerialSettings::chooseHomePlate,
@@ -187,11 +188,6 @@ fun WallpaperSheet(
                             R.string.st_names, stringResource(R.string.st_names_hint), note,
                             listOf(false to R.string.st_names_focused, true to R.string.st_names_all),
                             AerialSettings.showAllNames, AerialSettings::chooseShowAllNames,
-                        )
-                        Choices(
-                            R.string.st_icon_library, stringResource(R.string.st_icon_library_hint), note,
-                            listOf(true to R.string.st_icon_library_on, false to R.string.st_icon_library_off),
-                            AerialSettings.iconLibrary, AerialSettings::chooseIconLibrary,
                         )
                         // Apps taken off Home are kept with the rest of how Home looks.
                         SettingRow(R.string.st_hidden_apps, stringResource(R.string.st_hidden_apps_hint), note) {
@@ -279,7 +275,20 @@ fun WallpaperSheet(
                             listOf(true to R.string.st_on, false to R.string.st_off),
                             AerialSettings.screensaverClock, AerialSettings::chooseScreensaverClock,
                         )
-                        Choices(
+                        // The firmware's screensaver starts on the firmware's timer: Aerial's delay
+                        // did nothing there, and Xiaomi's 1 minute came before the 5 chosen (issue #675).
+                        if (Wallpapers.screensaver == ScreensaverMode.System) SettingRow(R.string.ss_delay, null, note) {
+                            val delay = remember { SystemScreensaver.firmwareDelayMs(context) }
+                            BasicText(
+                                when {
+                                    delay == null -> stringResource(R.string.ss_delay_system)
+                                    delay == 0L -> stringResource(R.string.ss_delay_system_off)
+                                    else -> stringResource(R.string.ss_delay_system_minutes, ((delay + 30_000) / 60_000).coerceAtLeast(1).toInt())
+                                },
+                                style = Type.Body.copy(color = Palette.SecondaryLabel),
+                                modifier = Modifier.padding(end = 8.dp),
+                            )
+                        } else Choices(
                             R.string.ss_delay, null, note,
                             AerialSettings.screensaverChoices.map {
                                 it to if (it == AerialSettings.NEVER) stringResource(R.string.ss_never) else stringResource(R.string.ss_minutes, it)
@@ -333,9 +342,14 @@ private fun WallpaperRows() {
     }
     val dailyTitle = stringResource(R.string.wp_daily_latest)
     val rotateTitle = stringResource(R.string.wp_photos_rotate)
-    val list = remember(items, selected, dailyTitle, rotateTitle) {
+    val videosTitle = stringResource(R.string.wp_videos_rotate)
+    val list = remember(items, selected, dailyTitle, rotateTitle, videosTitle) {
         buildList {
-            addAll(items.filter { it.kind == WallpaperKind.Live || it.kind == WallpaperKind.Video })
+            addAll(items.filter { it.kind == WallpaperKind.Live })
+            // Each video on its own, and with two or more one card that plays them in turn (#762).
+            val videos = items.filter { it.kind == WallpaperKind.Video && it.id != Wallpapers.VIDEOS }
+            if (videos.size > 1 || selected == Wallpapers.VIDEOS) add(Wallpaper(Wallpapers.VIDEOS, WallpaperKind.Video, videosTitle))
+            addAll(videos)
             if (items.any { it.kind == WallpaperKind.Daily }) add(Wallpaper(Wallpapers.LATEST_DAILY, WallpaperKind.Daily, dailyTitle))
             addAll(items.filter { it.kind == WallpaperKind.Daily && it.id == selected })
             val photos = items.filter { it.kind == WallpaperKind.Photo }
@@ -370,7 +384,8 @@ private fun WallpaperRows() {
 @Composable
 private fun wallpaperNote(wp: Wallpaper): String? = when {
     wp.kind == WallpaperKind.Live -> stringResource(R.string.wp_live)
-    wp.kind == WallpaperKind.Video -> stringResource(R.string.wp_videos_note)
+    wp.id == Wallpapers.VIDEOS -> stringResource(R.string.wp_videos_note)
+    wp.kind == WallpaperKind.Video -> stringResource(R.string.wp_video_note)
     wp.kind == WallpaperKind.Source -> stringResource(R.string.wp_source_note)
     wp.id == Wallpapers.LATEST_DAILY -> stringResource(R.string.wp_daily_note)
     wp.id == Wallpapers.ROTATE_PHOTOS -> stringResource(R.string.wp_photos_rotate_note)
@@ -629,7 +644,8 @@ private fun PhoneCard(url: String?, qr: ImageBitmap?) {
         )
         if (url != null) {
             Spacer(Modifier.height(6.dp))
-            BasicText(url.removePrefix("http://").substringBefore('/') , style = Type.Caption.copy(color = Palette.TertiaryLabel))
+            // The whole address, token and all, to type into a computer's browser.
+            BasicText(url.removePrefix("http://"), style = Type.Caption.copy(color = Palette.SecondaryLabel))
         }
     }
 }

@@ -163,9 +163,9 @@
   .arow { min-height: 60px; background: var(--card); }
   .arow .thumb { width: 64px; }
   .arow .act { flex-shrink: 0; font-weight: 600; }
-  /* Home as on the TV: five tiles a row, the first on a shelf. */
+  /* Home as on the TV: as many tiles a row (--cols, Personalize on the TV), the first on a shelf. */
   .agrid {
-    position: relative; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px 7px;
+    position: relative; display: grid; grid-template-columns: repeat(var(--cols, 5), minmax(0, 1fr)); gap: 14px 7px;
     padding: 12px 10px 14px; background: var(--card); border-radius: 14px;
   }
   .agrid .shelf { position: absolute; left: 4px; right: 4px; top: 4px; border-radius: 11px; background: var(--fill); pointer-events: none; }
@@ -217,6 +217,53 @@
     -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
   }
   .toast.on { opacity: 1; transform: translate(-50%, 0); }
+  /* Dropping files anywhere on the page: photos become wallpapers, videos go to the screensaver. */
+  .drop {
+    position: fixed; inset: 0; z-index: 40; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+    background: var(--scrim); color: #fff; pointer-events: none; opacity: 0; transition: opacity .15s ease;
+  }
+  .drop.on { opacity: 1; }
+  .drop b { font-size: 24px; font-weight: 600; padding: 28px 40px 0; border: 2px dashed rgba(255,255,255,.7); border-bottom: 0; border-radius: 18px 18px 0 0; }
+  .drop span { font-size: 15px; opacity: .85; padding: 0 40px 28px; border: 2px dashed rgba(255,255,255,.7); border-top: 0; border-radius: 0 0 18px 18px; }
+
+  /* A computer's browser: the tabs down the side, a wider page, dialogs in the middle. */
+  @media (hover: hover) and (pointer: fine) {
+    button.item:hover, label.item:hover { background: var(--fill); }
+    .wp:hover .pic { transform: scale(1.02); }
+    .btn:hover { filter: brightness(1.06); }
+    nav button:hover { color: var(--label); }
+    .atile:hover .tpic { box-shadow: 0 4px 12px rgba(0,0,0,.2); }
+  }
+  @media (min-width: 900px) {
+    :root { --side: 220px; }
+    main { max-width: 1040px; margin: 0 0 0 var(--side); padding: 12px 40px 48px; }
+    @media (min-width: 1320px) { main { margin-left: calc(var(--side) + (100vw - var(--side) - 1040px) / 2); } }
+    header { padding-top: 32px; }
+    nav {
+      top: 0; right: auto; bottom: 0; width: var(--side); height: auto; padding: 88px 12px 0;
+      flex-direction: column; justify-content: flex-start; gap: 4px; box-shadow: .5px 0 0 var(--bar-line);
+    }
+    nav button {
+      flex: none; max-width: none; flex-direction: row; gap: 12px; padding: 9px 12px; border-radius: 10px;
+      font-size: 15px; font-weight: 500; color: var(--label);
+    }
+    nav button svg { width: 22px; height: 22px; color: var(--secondary); }
+    nav button[aria-selected="true"] { background: var(--fill); color: var(--tint); }
+    nav button[aria-selected="true"] svg { color: var(--tint); }
+    .grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 20px 16px; }
+    .hero { max-width: 720px; }
+    .agrid { gap: 18px 12px; padding: 16px 16px 18px; }
+    .atile .n { font-size: 12.5px; }
+    .add { max-width: 320px; }
+    .sheet {
+      top: 50%; bottom: auto; left: 50%; right: auto; width: 520px; max-height: calc(100% - 80px);
+      border-radius: 14px; padding: 18px 20px 20px; transform: translate(-50%, -46%); opacity: 0;
+      transition: transform .2s var(--ease-out), opacity .15s ease; box-shadow: 0 24px 60px rgba(0,0,0,.3);
+    }
+    .sheet-wrap.open .sheet { transform: translate(-50%, -50%); opacity: 1; transition: transform .26s var(--ease-out), opacity .2s ease; }
+    .grab { display: none; }
+    .toast { bottom: 28px; left: calc(50% + var(--side) / 2); }
+  }
   @media (prefers-reduced-motion: reduce) {
     .sheet, .sheet-wrap.open .sheet { transition: none; }
     .view.push, .view.pop { animation: none; }
@@ -303,7 +350,7 @@
   <pre class="diag" id="diag" hidden></pre>
   <div class="row" id="diagActions" hidden>
     <button class="btn" id="diagCopy" data-i18n="diag_copy"></button>
-    <a class="btn plain" href="https://github.com/pengchujin/aerial-tv/issues/new?template=device.yml" target="_blank" rel="noopener" data-i18n="diag_github"></a>
+    <a class="btn plain" id="diagGithub" href="https://github.com/pengchujin/aerial-tv/issues/new?template=device.yml" target="_blank" rel="noopener" data-i18n="diag_github"></a>
   </div>
   <p class="foot" data-i18n="feedback_hint"></p>
 </section>
@@ -323,6 +370,7 @@
   </div>
 </div>
 <div class="toast" id="toast"></div>
+<div class="drop" id="drop" aria-hidden="true"><b data-i18n="drop_hint"></b><span data-i18n="drop_sub"></span></div>
 
 <script>
 const base = location.pathname.replace(/\/?$/, '/');
@@ -332,7 +380,7 @@ let state = null, stateJson = '';
 
 // The language: ?lang=ru in the address, else the one picked under More (kept on the phone), else the
 // first of the phone's preferred languages that has a table, else English. Keys are in KEYS, one array of texts per language.
-const KEYS = ["screensaver", "screensaver_short", "ss_aerial", "ss_photos", "ss_clock", "focus", "focus_high", "focus_standard", "weather", "city_ph", "set", "upload_label", "feedback_h", "feedback_hint", "diag_show", "diag_copy", "diag_github", "hint_aerial", "hint_photos", "hint_clock", "g_live", "g_live_sub", "g_daily", "g_daily_sub", "g_photo", "g_builtin", "g_auto", "toast_wallpaper", "aria_delete", "confirm_delete", "wx_clear", "wx_partlycloudy", "wx_cloudy", "wx_fog", "wx_rain", "wx_snow", "wx_thunder", "wx_chosen", "wx_auto_btn", "toast_auto", "wx_guessed", "wx_none", "tag_source", "aria_rename", "toast_renamed", "toast_name_reset", "toast_rename_fail", "aria_reset_icon", "toast_icon_reset", "focus_hint_standard", "focus_hint_high", "daily_title", "daily_caption", "rotate_title", "rotate_caption", "empty_photos", "add_second", "toast_tv_updated", "sending_n", "toast_added", "toast_no_photos", "toast_send_fail", "toast_city_set", "toast_city_nf", "toast_set_fail", "toast_sending_icon", "toast_icon_set", "toast_icon_bad", "diag_collecting", "toast_diag_fail", "toast_copied", "toast_copy_manual", "language", "hint_follows", "ss_videos", "hint_videos", "videos_h", "videos_upload", "videos_hint", "videos_empty", "confirm_video_delete", "toast_videos_added", "toast_video_bad", "sending_video", "hint_system", "tab_home", "tab_more", "current_wp", "cancel", "save", "name_ph", "rename_hint", "change_icon", "this_tv", "folder_count", "folder_ph", "inputs_h", "inputs_hint", "rename_hint_app", "was_named", "arrange_hint", "arrange_unready", "hidden_h", "hidden_none", "hidden_locked", "show_app", "hide_app", "to_folder", "new_folder", "out_of_folder", "ungroup", "ungroup_confirm", "folder_hint", "toast_hidden", "toast_shown", "toast_in_folder", "toast_out_folder", "toast_ungrouped", "tab_looks", "looks_title", "show_on_home", "source_device", "source_plain", "source_device_hint", "tv_model", "sw_always", "sw_always_sub", "sw_weather", "sw_saver_time", "sw_saver_time_sub", "g_source_sub", "icon_h", "icon_library", "icon_own", "icon_custom", "toast_icon_picked"];
+const KEYS = ["screensaver", "screensaver_short", "ss_aerial", "ss_photos", "ss_clock", "focus", "focus_high", "focus_standard", "weather", "city_ph", "set", "upload_label", "feedback_h", "feedback_hint", "diag_show", "diag_copy", "diag_github", "hint_aerial", "hint_photos", "hint_clock", "g_live", "g_live_sub", "g_daily", "g_daily_sub", "g_photo", "g_builtin", "g_auto", "toast_wallpaper", "aria_delete", "confirm_delete", "wx_clear", "wx_partlycloudy", "wx_cloudy", "wx_fog", "wx_rain", "wx_snow", "wx_thunder", "wx_chosen", "wx_auto_btn", "toast_auto", "wx_guessed", "wx_none", "tag_source", "aria_rename", "toast_renamed", "toast_name_reset", "toast_rename_fail", "aria_reset_icon", "toast_icon_reset", "focus_hint_standard", "focus_hint_high", "daily_title", "daily_caption", "rotate_title", "rotate_caption", "empty_photos", "add_second", "toast_tv_updated", "sending_n", "toast_added", "toast_no_photos", "toast_send_fail", "toast_city_set", "toast_city_nf", "toast_set_fail", "toast_sending_icon", "toast_icon_set", "toast_icon_bad", "diag_collecting", "toast_diag_fail", "toast_copied", "toast_copy_manual", "language", "hint_follows", "ss_videos", "hint_videos", "videos_h", "videos_upload", "videos_hint", "videos_empty", "confirm_video_delete", "toast_videos_added", "toast_video_bad", "sending_video", "hint_system", "tab_home", "tab_more", "current_wp", "cancel", "save", "name_ph", "rename_hint", "change_icon", "this_tv", "folder_count", "folder_ph", "inputs_h", "inputs_hint", "rename_hint_app", "was_named", "arrange_hint", "arrange_unready", "hidden_h", "hidden_none", "hidden_locked", "show_app", "hide_app", "to_folder", "new_folder", "out_of_folder", "ungroup", "ungroup_confirm", "folder_hint", "toast_hidden", "toast_shown", "toast_in_folder", "toast_out_folder", "toast_ungrouped", "tab_looks", "looks_title", "show_on_home", "source_device", "source_plain", "source_device_hint", "tv_model", "sw_always", "sw_always_sub", "sw_weather", "sw_saver_time", "sw_saver_time_sub", "g_source_sub", "icon_h", "icon_library", "icon_own", "icon_custom", "toast_icon_picked", "drop_hint", "drop_sub", "drop_none", "toast_diag_paste"];
 const TEXTS = {
  "zh": [
   "屏幕保护程序",
@@ -356,7 +404,7 @@ const TEXTS = {
   "轮播每日精选和你的照片。",
   "大号时钟，配合当前壁纸。",
   "动态",
-  "航拍和你的视频。默认在主屏幕停 10 秒后播放，按键停在当前画面。",
+  "航拍和你的视频。航拍在主屏幕上一直播放；你的视频默认停 10 秒后播放，按键停在当前画面。",
   "每日精选",
   "每天自动更新的风景摄影",
   "我的照片",
@@ -390,7 +438,7 @@ const TEXTS = {
   "总是使用当天的照片",
   "每天换一张",
   "每天自动换成下一张照片",
-  "还没有照片。用上面的按钮从手机添加。",
+  "还没有照片。用上面的按钮添加，电脑上也可以直接把照片拖进来。",
   "再加一张照片，就可以选「每天换一张」。",
   "电视上已更新",
   "正在发送 {n} 张…",
@@ -427,7 +475,7 @@ const TEXTS = {
   "保存",
   "例如 客厅 Apple TV",
   "给信号源起个名字，留空恢复默认名字。",
-  "从手机选一张图片",
+  "选一张图片",
   "这台电视",
   "{n} 个 App",
   "文件夹名字",
@@ -470,7 +518,11 @@ const TEXTS = {
   "精选图",
   "App 自带",
   "我换的图片",
-  "已换图标"
+  "已换图标",
+  "松开即可发送到电视",
+  "照片用作壁纸，视频加入屏保",
+  "只能发送照片和视频（MP4、MOV）",
+  "诊断信息已复制。在 GitHub 打开的页面里，把它粘贴到「诊断信息」一栏。"
  ],
  "en": [
   "Screensaver",
@@ -494,7 +546,7 @@ const TEXTS = {
   "Cycles through the daily photos and yours.",
   "A big clock over the current wallpaper.",
   "Moving",
-  "Aerial films and your own videos. They start after 10 seconds still on Home and stop on the frame showing at a key.",
+  "Aerial films and your own videos. The aerial films always play on Home; your videos start after 10 seconds still and stop on the frame showing at a key.",
   "Daily Photos",
   "Landscape photography, updated every day",
   "My Photos",
@@ -528,7 +580,7 @@ const TEXTS = {
   "Always uses today’s photo",
   "One a Day",
   "Switches to the next photo every day",
-  "No photos yet. Add some from your phone with the button above.",
+  "No photos yet. Add some with the button above, or drag them in on a computer.",
   "Add one more photo to choose “One a Day”.",
   "Updated on the TV",
   "Sending {n}…",
@@ -608,7 +660,11 @@ const TEXTS = {
   "Ready-made",
   "From the App",
   "My Picture",
-  "Picture changed"
+  "Picture changed",
+  "Drop to send to the TV",
+  "Photos become wallpapers, videos join the screensaver",
+  "Only photos and videos (MP4, MOV) can be sent",
+  "Diagnostics copied. On the GitHub page that opens, paste them into Diagnostics."
  ],
  "ru": [
   "Заставка",
@@ -632,7 +688,7 @@ const TEXTS = {
   "Сменяются фото дня и ваши фото.",
   "Большие часы поверх текущих обоев.",
   "Движущиеся",
-  "Аэросъёмка и ваши видео. Запускаются через 10 секунд покоя на главном экране и останавливаются на текущем кадре по кнопке.",
+  "Аэросъёмка и ваши видео. Аэросъёмка всегда играет на главном экране; ваши видео запускаются через 10 секунд покоя и останавливаются на текущем кадре по кнопке.",
   "Фото дня",
   "Пейзажная фотография, обновляется каждый день",
   "Мои фото",
@@ -666,7 +722,7 @@ const TEXTS = {
   "Всегда сегодняшнее фото",
   "Одно в день",
   "Каждый день сменяется следующим фото",
-  "Фото пока нет. Добавьте их с телефона кнопкой выше.",
+  "Фото пока нет. Добавьте их кнопкой выше или перетащите на компьютере.",
   "Добавьте ещё одно фото, чтобы выбрать «Одно в день».",
   "Обновлено на телевизоре",
   "Отправка: {n}…",
@@ -746,7 +802,11 @@ const TEXTS = {
   "Готовая",
   "Из приложения",
   "Моя картинка",
-  "Картинка изменена"
+  "Картинка изменена",
+  "Отпустите, чтобы отправить на телевизор",
+  "Фото станут обоями, видео — заставкой",
+  "Можно отправлять только фото и видео (MP4, MOV)",
+  "Диагностика скопирована. На открывшейся странице GitHub вставьте её в поле «Диагностика»."
  ],
  "uk": [
   "Заставка",
@@ -770,7 +830,7 @@ const TEXTS = {
   "Змінюються фото дня та ваші фото.",
   "Великий годинник поверх поточних шпалер.",
   "Рухомі",
-  "Аерозйомка і ваші відео. Запускаються через 10 секунд спокою на головному екрані і зупиняються на поточному кадрі за кнопкою.",
+  "Аерозйомка і ваші відео. Аерозйомка завжди грає на головному екрані; ваші відео запускаються через 10 секунд спокою і зупиняються на поточному кадрі за кнопкою.",
   "Фото дня",
   "Пейзажна фотографія, оновлюється щодня",
   "Мої фото",
@@ -804,7 +864,7 @@ const TEXTS = {
   "Завжди сьогоднішнє фото",
   "Одне на день",
   "Щодня змінюється наступним фото",
-  "Фото ще немає. Додайте їх з телефона кнопкою вище.",
+  "Фото ще немає. Додайте їх кнопкою вище або перетягніть на комп’ютері.",
   "Додайте ще одне фото, щоб вибрати «Одне на день».",
   "Оновлено на телевізорі",
   "Надсилання: {n}…",
@@ -884,7 +944,11 @@ const TEXTS = {
   "Готове",
   "Із застосунку",
   "Моє зображення",
-  "Зображення змінено"
+  "Зображення змінено",
+  "Відпустіть, щоб надіслати на телевізор",
+  "Фото стануть шпалерами, відео — заставкою",
+  "Можна надсилати лише фото й відео (MP4, MOV)",
+  "Діагностику скопійовано. На сторінці GitHub, що відкриється, вставте її в поле «Діагностика»."
  ],
  "kk": [
   "Экран қорғаушы",
@@ -908,7 +972,7 @@ const TEXTS = {
   "Күннің фотолары мен өз фотоларыңыз кезектеседі.",
   "Ағымдағы түсқағаз үстіндегі үлкен сағат.",
   "Қозғалмалы",
-  "Аэрожиын және өз бейнелеріңіз. Басты экранда 10 секунд тыныштықтан кейін басталып, түймені басқанда ағымдағы кадрда тоқтайды.",
+  "Аэрожиын және өз бейнелеріңіз. Аэрожиын басты экранда әрдайым ойнайды; бейнелеріңіз 10 секунд тыныштықтан кейін басталып, түймені басқанда ағымдағы кадрда тоқтайды.",
   "Күннің фотолары",
   "Пейзаждық фотография, күн сайын жаңартылады",
   "Менің фотоларым",
@@ -942,7 +1006,7 @@ const TEXTS = {
   "Әрқашан бүгінгі фото",
   "Күніне біреуі",
   "Күн сайын келесі фотоға ауысады",
-  "Фотолар әлі жоқ. Оларды жоғарыдағы түймемен телефоннан қосыңыз.",
+  "Фотолар әлі жоқ. Оларды жоғарыдағы түймемен қосыңыз немесе компьютерде сүйреп әкеліңіз.",
   "«Күніне біреуін» таңдау үшін тағы бір фото қосыңыз.",
   "Теледидарда жаңартылды",
   "Жіберілуде: {n}…",
@@ -1022,7 +1086,11 @@ const TEXTS = {
   "Дайын",
   "Қолданбадан",
   "Менің суретім",
-  "Сурет өзгертілді"
+  "Сурет өзгертілді",
+  "Теледидарға жіберу үшін босатыңыз",
+  "Фотолар түсқағаз, бейнелер скринсейвер болады",
+  "Тек фото мен бейне (MP4, MOV) жіберуге болады",
+  "Диагностика көшірілді. Ашылған GitHub бетінде оны «Диагностика» өрісіне қойыңыз."
  ]
 };
 const LANGS = Object.keys(TEXTS);
@@ -1228,6 +1296,8 @@ function renderWallpapers() {
   for (const [kind, title, sub] of groups) {
     // Moving: the aerial films and the owner's videos.
     let list = state.wallpapers.filter(w => w.kind === kind || (kind === 'live' && w.kind === 'video'));
+    // Each video on its own; the card that plays them in turn only for two or more (#762), as on the TV.
+    if (kind === 'live' && list.filter(w => w.kind === 'video').length < 3 && state.selected !== 'videos:mine') list = list.filter(w => w.id !== 'videos:mine');
     if (kind === 'daily' && list.length) list = [{ id: state.latestDaily, kind: 'daily', title: t('daily_title'), caption: t('daily_caption') }, ...list];
     // Two or more photos: one a day, as on the TV (#27, #194).
     if (kind === 'photo' && list.length > 1) list = [{ id: state.rotatePhotos, kind: 'photos', title: t('rotate_title'), caption: t('rotate_caption') }, ...list];
@@ -1246,8 +1316,8 @@ function renderWallpapers() {
     list.forEach(w => g.appendChild(card(w)));
     root.appendChild(g);
     if (sub) root.appendChild(el('p', 'foot', sub));
-    // Whether keys stop a moving wallpaper; only for one that moves, as on the TV.
-    if (kind === 'live' && (state.selected === 'aerial:live' || state.selected === 'videos:mine')) {
+    // Whether keys stop the owner's videos, as on the TV; the aerial films always move.
+    if (kind === 'live' && /^videos?:/.test(state.selected)) {
       const l = el('div', 'list'); l.style.marginTop = '10px';
       const row = el('label', 'item');
       const txt = el('span', 'txt', t('sw_always')); txt.appendChild(el('span', 'sub', t('sw_always_sub')));
@@ -1259,8 +1329,9 @@ function renderWallpapers() {
   }
 }
 let uploading = 0;
-async function uploadPhotos(e) {
-  const files = [...e.target.files]; if (!files.length) return;
+function uploadPhotos(e) { sendPhotos([...e.target.files]); }
+async function sendPhotos(files) {
+  if (!files.length || uploading) return;
   uploading = files.length; stateJson = ''; render();
   try {
     const fd = new FormData(); files.forEach((f, i) => fd.append('photo' + i, f, f.name));
@@ -1300,8 +1371,9 @@ document.querySelectorAll('#ss [data-mode]').forEach(b => b.onclick = async () =
   if (b.dataset.mode === state.screensaver && !state.screensaverFollows) return;
   try { take(await api('api/screensaver', { mode: b.dataset.mode })); toast(t('toast_tv_updated')); } catch (e) { toast(t('toast_set_fail')); }
 });
-$('#videoFile').onchange = async e => {
-  const input = e.target; const files = [...input.files]; if (!files.length) return;
+$('#videoFile').onchange = e => sendVideos([...e.target.files]);
+async function sendVideos(files) {
+  const input = $('#videoFile'); if (!files.length || input.disabled) return;
   const btn = $('#videoUploadBtn');
   input.disabled = true; btn.setAttribute('disabled', '');
   let added = 0;
@@ -1317,7 +1389,26 @@ $('#videoFile').onchange = async e => {
   }
   sendingVideo = ''; input.disabled = false; input.value = ''; btn.removeAttribute('disabled'); stateJson = ''; render();
   toast(t('toast_videos_added', { n: added, failed: files.length - added }));
-};
+}
+
+/* Files dropped anywhere on the page, as from a computer's folder: photos to the wallpapers, videos to the screensaver. */
+let dragDepth = 0;
+const carriesFiles = e => [...(e.dataTransfer?.types || [])].includes('Files');
+window.addEventListener('dragenter', e => { if (!carriesFiles(e)) return; e.preventDefault(); dragDepth++; $('#drop').classList.add('on'); });
+window.addEventListener('dragover', e => { if (carriesFiles(e)) e.preventDefault(); });
+window.addEventListener('dragleave', e => { if (!carriesFiles(e)) return; if (--dragDepth <= 0) { dragDepth = 0; $('#drop').classList.remove('on'); } });
+window.addEventListener('drop', e => {
+  if (!carriesFiles(e)) return;
+  e.preventDefault(); dragDepth = 0; $('#drop').classList.remove('on');
+  const files = [...e.dataTransfer.files];
+  const photos = files.filter(f => f.type.startsWith('image/'));
+  const videos = files.filter(f => /^video\/(mp4|quicktime)$/.test(f.type) || /\.(mp4|mov)$/i.test(f.name));
+  if (!photos.length && !videos.length) { toast(t('drop_none')); return; }
+  // Both land in the Wallpaper tab: the photos at its top, the videos under the screensaver.
+  show('looks', true);
+  if (photos.length) sendPhotos(photos);
+  if (videos.length) sendVideos(videos);
+});
 
 /* More tab: focus style and weather. */
 const weatherNames = { clear: t('wx_clear'), partlycloudy: t('wx_partlycloudy'), cloudy: t('wx_cloudy'), fog: t('wx_fog'), rain: t('wx_rain'), snow: t('wx_snow'), thunder: t('wx_thunder') };
@@ -1416,7 +1507,22 @@ $('#diagBtn').onclick = async () => {
 // The page is plain HTTP on the LAN, where browsers offer no navigator.clipboard. So the text is
 // copied from a field off screen: 16px so iOS does not zoom, and the scroll put back after, since
 // focusing it can still move the page.
-$('#diagCopy').onclick = () => {
+$('#diagCopy').onclick = () => toast(t(copyDiag() ? 'toast_copied' : 'toast_copy_manual'));
+// The issue form opens with what fits in its address filled in (GitHub fills form fields named in
+// the query): the model, the version and the TV's own input corrections. The diagnostics are too
+// long for an address, so they go to the clipboard for the owner to paste.
+$('#diagGithub').onclick = (e) => {
+  const text = $('#diag').textContent, q = new URLSearchParams({ template: 'device.yml' });
+  const model = (text.match(/^Device +(.+?) \(device /m) || [])[1]?.split(' / ').pop();
+  const version = (text.match(/^Aerial +(\S+) \(/m) || [])[1];
+  const profile = (text.match(/\*\*Device profile\*\* \(ThisTv\)\n```json\n(.+)\n```/) || [])[1];
+  if (model) { q.set('title', '[机型] ' + model); q.set('model', model); }
+  if (version) q.set('version', 'Aerial ' + version);
+  if (profile) q.set('profile', profile);
+  e.currentTarget.href = 'https://github.com/pengchujin/aerial-tv/issues/new?' + q;
+  toast(t(copyDiag() ? 'toast_diag_paste' : 'toast_copy_manual'));
+};
+function copyDiag() {
   const text = $('#diag').textContent, x = window.scrollX, y = window.scrollY;
   const tmp = document.createElement('textarea');
   tmp.value = text; tmp.setAttribute('aria-hidden', 'true');
@@ -1433,8 +1539,8 @@ $('#diagCopy').onclick = () => {
     const sel = window.getSelection(); sel.removeAllRanges();
     const range = document.createRange(); range.selectNodeContents($('#diag')); sel.addRange(range);
   }
-  toast(t(ok ? 'toast_copied' : 'toast_copy_manual'));
-};
+  return ok;
+}
 
 /*
  * The Home Screen tab: the TV's tiles in a grid as on the TV, dragged into place. A tap on a tile
@@ -1528,6 +1634,7 @@ function buildFolderView(view, folder, apps) {
 
 function tileGrid(entries, shelf) {
   const grid = el('div', 'agrid');
+  grid.style.setProperty('--cols', homeCols());
   if (shelf && entries.length) grid.appendChild(el('div', 'shelf'));
   for (const e of entries) {
     const tile = el('div', 'atile'); tile.dataset.key = e.key; tile.setAttribute('role', 'button'); tile.tabIndex = 0;
@@ -1539,11 +1646,13 @@ function tileGrid(entries, shelf) {
   }
   return grid;
 }
+/* Apps a row on the TV's Home. */
+function homeCols() { return (state.layout && state.layout.columns) || 5; }
 /* The shelf sits behind Home's first row, as the glass plate does on the TV. */
 function placeShelves() {
   document.querySelectorAll('#homeBody .agrid').forEach(g => {
     const shelf = g.querySelector('.shelf'); if (!shelf) return;
-    const first = [...g.querySelectorAll('.atile')].slice(0, 5);
+    const first = [...g.querySelectorAll('.atile')].slice(0, homeCols());
     const bottom = Math.max(...first.map(t => t.offsetTop + t.offsetHeight));
     shelf.style.height = (bottom + 6 - 4) + 'px';
   });
@@ -1741,8 +1850,10 @@ function sortableGrid(grid, keys, onMove, onTap) {
       });
     };
     const edge = () => {
-      // The page scrolls; the tab bar covers its bottom.
-      const top = 0, bottom = document.querySelector('nav').getBoundingClientRect().top, zone = 70;
+      // The page scrolls; on a phone the tab bar covers its bottom. On a computer the bar is the
+      // side bar, whose top is 0: taken for the bottom, it scrolled the page from mid-window (#786).
+      const bar = document.querySelector('nav').getBoundingClientRect();
+      const top = 0, bottom = bar.top > innerHeight / 2 ? bar.top : innerHeight, zone = 70;
       const v = y < top + zone ? -(top + zone - y) / 4 : y > bottom - zone ? (y - (bottom - zone)) / 4 : 0;
       if (v) { window.scrollBy(0, Math.max(-16, Math.min(16, v))); place(); }
       raf = requestAnimationFrame(edge);

@@ -50,6 +50,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -71,6 +72,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import app.orchard.tv.CcPage
 import app.orchard.tv.BuildConfig
 import app.orchard.tv.HomeViewModel
@@ -89,6 +91,7 @@ import app.orchard.tv.ui.components.consumeTaps
 import app.orchard.tv.ui.components.dismissOnTap
 import app.orchard.tv.ui.components.liquidGlass
 import app.orchard.tv.ui.home.MenuRow
+import app.orchard.tv.ui.home.VpnBadge
 import app.orchard.tv.ui.home.dateText
 import app.orchard.tv.ui.home.timeText
 import app.orchard.tv.ui.theme.Glyph
@@ -225,6 +228,7 @@ private fun MainPage(vm: HomeViewModel, now: LocalDateTime, takeFocus: Boolean, 
                     style = Type.Caption, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.widthIn(max = 110.dp),
                 )
+                if (net.vpn) VpnBadge(Palette.SecondaryLabel, fontSize = 9.sp)
             }
         }
 
@@ -344,6 +348,7 @@ private fun UpdatePage(vm: HomeViewModel, takeFocus: Boolean) {
             val status = when (val state = Updates.install) {
                 Updates.Install.Opened -> stringResource(R.string.cc_update_opened)
                 Updates.Install.NeedsPermission -> stringResource(R.string.cc_update_permission)
+                Updates.Install.NeedsStoragePermission -> stringResource(R.string.cc_update_storage_permission)
                 is Updates.Install.Failed -> stringResource(
                     when (state.reason) {
                         Updates.Failure.Download -> R.string.cc_update_failed_download
@@ -524,6 +529,21 @@ private fun VolumeRow(vm: HomeViewModel) {
 @Composable
 private fun BrightnessRow(vm: HomeViewModel) {
     val context = LocalContext.current
+    // XGIMI (GMUI): the real brightness is the DLP light-engine level. It reads through the HAL
+    // class (SystemProbe.xgimiBrightnessLevel) and, on this firmware, writes through it too, so the
+    // row is a slider of the light engine's own levels (1..10) rather than a percentage of the
+    // system setting that moves nothing. Poll the HAL while the row is on screen: the level can be
+    // changed from the TV's own overlay, which does not pause Aerial, so no onResume or
+    // screen_brightness observer ever fires for it.
+    val xgimi = remember { SystemProbe.xgimiBrightnessLevel() != null }
+    LaunchedEffect(xgimi) {
+        if (!xgimi) return@LaunchedEffect
+        vm.refreshBrightness()
+        while (isActive) {
+            delay(700)
+            vm.refreshBrightness()
+        }
+    }
     val level = vm.brightness
     if (level == null) {
         MenuRow(Glyph.Sun, stringResource(R.string.cc_brightness), onClick = {
@@ -535,8 +555,8 @@ private fun BrightnessRow(vm: HomeViewModel) {
             glyph = Glyph.Sun,
             level = level,
             value = Math.round(level * 100).toString(),
-            // Brightness.adjust moves 5% a step, and stops at 1%.
-            steps = 20,
+            // Brightness.adjust moves 5% a step, and stops at 1%; XGIMI steps its own levels.
+            steps = if (xgimi) SystemProbe.xgimiBrightnessMax else 20,
             onStep = vm::adjustBrightness,
             onClick = {},
         )

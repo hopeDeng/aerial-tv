@@ -43,9 +43,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+/** A brightness poll closer than this to a step is stale: the light engine applies the write meanwhile. */
+private const val POLL_QUIET_MS = 400L
 
 sealed interface Overlay {
     data object None : Overlay
@@ -96,6 +100,22 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
     var brightness by mutableStateOf<Float?>(null); private set
 
     /**
+     * When the Control Center row last took a step (uptime ms). The light engine reports the new
+     * level a moment after the write, so a poll that runs in between must not put the previous step
+     * back on screen.
+     */
+    private var brightnessActedAt = 0L
+
+    /**
+     * Levels the row asked for, newest kept: between the repeats of a held key the engine only needs
+     * the level it is to end on. Written off the main thread, in order.
+     */
+    private val brightnessSteps = Channel<Int>(Channel.CONFLATED)
+
+    /** XGIMI's light engine steps its own levels; every other TV steps the panel in percent. */
+    private val xgimiBrightness by lazy { SystemProbe.hasXgimiBrightness }
+
+    /**
      * Set when Home is pressed: go back to the top row. Done once the window has focus again,
      * since a focus request made while another app is in front is lost.
      */
@@ -130,6 +150,11 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
         AppCatalog.pinSource = ::pinSourceById
         AppCatalog.layout = layoutOps
         reload()
+        // The light engine is written off the main thread: a held key repeats every few tens of ms,
+        // and doing the HAL call on the key's own thread left the row lagging behind the picture.
+        viewModelScope.launch(Dispatchers.Default) {
+            for (level in brightnessSteps) SystemProbe.setXgimiBrightnessLevel(level)
+        }
         // A tile picture set or removed from the phone page.
         viewModelScope.launch { snapshotFlow { CustomIcons.version }.drop(1).collect { reload() } }
         // Library pictures that arrived, or the library turned on or off.
@@ -139,6 +164,14 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { snapshotFlow { SourceLooks.all }.drop(1).collect { if (loaded) arrange() } }
         // An app renamed on the phone page.
         viewModelScope.launch { snapshotFlow { AppNames.all }.drop(1).collect { if (loaded) arrange() } }
+        viewModelScope.launch { snapshotFlow { AerialSettings.previewApps }.drop(1).collect { if (loaded) arrange() } }
+        // Another number of apps a row: the artwork again if four a row wants it larger, else
+        // every face at the new size, before the tiles draw them.
+        viewModelScope.launch {
+            snapshotFlow { AerialSettings.homeColumns }.drop(1).collect {
+                if (TileArtFactory.fitColumns()) reload() else if (loaded) prepareFaces()
+            }
+        }
     }
 
     /**
@@ -243,7 +276,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
      */
     private fun prepareFaces() {
         val shown = apps + folderApps.values.flatten()
-        val row = apps.take(5)
+        val row = apps.take(AerialSettings.homeColumns)
         facesJob?.cancel()
         facesJob = viewModelScope.launch {
             val started = SystemClock.uptimeMillis()
@@ -295,7 +328,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                 ?: TileArtFactory.forFolder(shown).also { folderArt[folder.id] = shown to it }
             folderEntry(folder, art)
         }
-        apps = arrangement.home
+        apps = AerialSettings.previewApps.takeIf { it > 0 }?.let { arrangement.home.take(it) } ?: arrangement.home
         AppCatalog.home = arrangement.home
         AppCatalog.folderApps = arrangement.folders
         AppCatalog.hiddenApps = arrangement.hidden
@@ -415,7 +448,8 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
             val level = withContext(Dispatchers.Default) { Brightness.level(ctx) }
             network = n; volume = v
             // TvSource holds an Intent, which has no value equality; compare what a tile shows.
-            fun shown(list: List<TvSource>) = list.map { Triple(it.id, it.label, it.deviceName) }
+            // The route too: a corrected Xiaomi source id changes nothing a tile shows.
+            fun shown(list: List<TvSource>) = list.map { listOf(it.id, it.label, it.deviceName, it.intent.toUri(0)) }
             if (shown(s) != shown(sources)) { sources = s; arrange() } else sources = s
             homeStatus = SystemProbe.homeStatus(ctx)
             brightness = level
@@ -451,6 +485,21 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * The brightness alone, off the main thread, for the level only the TV can change: XGIMI's DLP
+     * light engine can be moved from the TV's own overlay, which does not pause Aerial, so Control
+     * Center polls this while its brightness row is up.
+     */
+    fun refreshBrightness() {
+        viewModelScope.launch {
+            val level = withContext(Dispatchers.Default) { Brightness.level(context) }
+            // A step taken while this read was in flight is newer than the level it read; the poll
+            // after the key is released puts the light engine's own answer back.
+            if (SystemClock.elapsedRealtime() - brightnessActedAt < POLL_QUIET_MS) return@launch
+            brightness = level
+        }
+    }
+
     fun refreshNetwork() { network = SystemProbe.network(context) }
 
     /**
@@ -466,6 +515,16 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun adjustBrightness(direction: Int) {
+        val current = brightness
+        if (xgimiBrightness && current != null) {
+            // Step from what the row shows and hand the write to the queue: the key's own thread
+            // stays free, and the row moves with the picture instead of after it.
+            val next = Brightness.xgimiStep(current, direction) ?: return
+            brightness = next
+            brightnessActedAt = SystemClock.elapsedRealtime()
+            brightnessSteps.trySend(Math.round(next * SystemProbe.xgimiBrightnessMax))
+            return
+        }
         brightness = Brightness.adjust(context, direction)
     }
 

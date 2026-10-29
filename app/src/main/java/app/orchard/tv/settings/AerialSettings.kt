@@ -2,6 +2,7 @@ package app.orchard.tv.settings
 
 import android.content.Context
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.edit
@@ -85,6 +86,19 @@ object AerialSettings {
      */
     var oneRowHome by mutableStateOf(true); private set
 
+    /**
+     * Apps a row on Home: [HOME_COLUMNS], five by default as Aerial always had, six as tvOS 26 lays
+     * them out, four for bigger tiles from the sofa. Folders follow it.
+     */
+    var homeColumns by mutableIntStateOf(DEFAULT_HOME_COLUMNS); private set
+
+    /**
+     * Home shows only its first this many tiles, for trying a nearly empty Home on a TV that has
+     * many apps (ConfigReceiver preview_apps). Kept in memory only: nothing is hidden or moved,
+     * and the next start, or 0, shows them all again.
+     */
+    var previewApps by mutableIntStateOf(0)
+
     /** In one-row mode, the top of the second row peeking under the first; off hides it until you go down. */
     var peekNextRow by mutableStateOf(true); private set
 
@@ -110,9 +124,6 @@ object AerialSettings {
     /** The weather beside the clock; off for those who want the time alone (issue #472). */
     var showWeather by mutableStateOf(true); private set
 
-    /** Ready-made tile pictures for popular apps from the website ([IconLibrary]). */
-    var iconLibrary by mutableStateOf(true); private set
-
     /**
      * The time over Aerial's aerial and photo screensavers (issue #240: TCL's firmware puts its own
      * clock over the system screensaver). The clock screensaver is the clock and keeps it.
@@ -127,7 +138,8 @@ object AerialSettings {
 
     /**
      * Parental PIN (issue #10): asked before TV settings open and before hidden apps come back.
-     * Kept as a SHA-256 hash. One right entry holds for a while, until Home is pressed.
+     * Kept as a SHA-256 hash. One right entry holds for a while, until Home is pressed, Aerial
+     * leaves the screen or the screensaver starts.
      */
     var pinSet by mutableStateOf(false); private set
 
@@ -163,6 +175,9 @@ object AerialSettings {
     val lite: Boolean get() = effects == Effects.Lite || (effects == Effects.Auto && lowEnd)
     private const val DEFAULT_SCREENSAVER_MINUTES = 5
 
+    val HOME_COLUMNS = 4..6
+    private const val DEFAULT_HOME_COLUMNS = 5
+
     fun init(context: Context) {
         if (started) return
         started = true
@@ -177,13 +192,13 @@ object AerialSettings {
         pinArrows = prefs.getBoolean("pin_arrows", false)
         oneRowHome = prefs.getBoolean("one_row_home", true)
         peekNextRow = prefs.getBoolean("peek_next_row", true)
+        homeColumns = prefs.getInt("home_columns", DEFAULT_HOME_COLUMNS).takeIf { it in HOME_COLUMNS } ?: DEFAULT_HOME_COLUMNS
         clockRight = prefs.getBoolean("clock_right", false)
         largeClock = prefs.getBoolean("large_clock", false)
         homePlate = prefs.getBoolean("home_plate", true)
         showAllNames = prefs.getBoolean("show_all_names", false)
         wallpaperAlwaysMoves = prefs.getBoolean("wallpaper_always_moves", false)
         showWeather = prefs.getBoolean("show_weather", true)
-        iconLibrary = prefs.getBoolean("icon_library", true)
         screensaverClock = prefs.getBoolean("screensaver_clock", true)
         // Before 1.28 this was on or off; on meant whichever sounds Aerial played.
         uiSounds = UiSounds.of(prefs.getString("ui_sounds_kind", null)) ?: when {
@@ -228,7 +243,9 @@ object AerialSettings {
         pinHash = pin?.let(::hash)
         pinSet = pinHash != null
         pinArrows = pin != null && arrows
-        unlockedUntil = if (pin != null) SystemClock.elapsedRealtime() + UNLOCK_MS else 0L
+        // Locked from the start: a parent who sets the PIN and hands the remote over expects it
+        // to hold at once, not after the next Home press (issue #718).
+        unlockedUntil = 0L
         app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit { putString("pin_hash", pinHash); putBoolean("pin_arrows", pinArrows) }
     }
 
@@ -238,6 +255,12 @@ object AerialSettings {
     fun chooseOneRowHome(on: Boolean) {
         oneRowHome = on
         app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit { putBoolean("one_row_home", on) }
+    }
+
+    fun chooseHomeColumns(columns: Int) {
+        if (columns !in HOME_COLUMNS) return
+        homeColumns = columns
+        app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit { putInt("home_columns", columns) }
     }
 
     fun choosePeekNextRow(on: Boolean) {
@@ -278,12 +301,6 @@ object AerialSettings {
     fun chooseShowWeather(on: Boolean) {
         showWeather = on
         app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit { putBoolean("show_weather", on) }
-    }
-
-    fun chooseIconLibrary(on: Boolean) {
-        iconLibrary = on
-        app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit { putBoolean("icon_library", on) }
-        IconLibrary.changed()
     }
 
     fun chooseScreensaverClock(on: Boolean) {

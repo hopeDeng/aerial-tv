@@ -31,6 +31,7 @@
     <string name="net_ethernet">有线网络</string>
     <string name="net_wifi">Wi-Fi</string>
     <string name="net_offline">未连接</string>
+    <string name="net_vpn">VPN</string>
 
     <string name="input_connected">已连接</string>
     <string name="input_live_tv">电视直播</string>
@@ -85,7 +86,7 @@
     <string name="wx_snow">雪</string>
     <string name="wx_thunder">雷雨</string>
     <string name="wp_daily_latest">每日一图</string>
-    <string name="wp_live">动态航拍。在主屏幕第一行停 10 秒后开始播放，按任意键停在当前画面并留作壁纸，下次从这一帧接着播。</string>
+    <string name="wp_live">动态航拍。在主屏幕第一排（双排时前两排）一直播放，再往下进入其余 App 时停在当前画面并留作壁纸，下次从这一帧接着播。</string>
     <string name="wp_photos_rotate">我的照片 · 每天换</string>
     <string name="wp_daily_note">必应每日一图，每天自动换成当天的。</string>
     <string name="wp_photos_rotate_note">从你的照片里每天换一张。</string>
@@ -96,20 +97,23 @@
     <string name="ss_aerial">航拍</string>
     <string name="ss_photos">照片</string>
     <string name="ss_clock">时钟</string>
-    <string name="wp_phone_title">用手机设置</string>
-    <string name="wp_phone_body">扫码后在手机上发照片当壁纸、更换 App 图标、设置天气城市。手机和电视需连接同一网络。</string>
-    <string name="wp_phone_offline">电视联网后即可用手机设置。</string>
+    <string name="wp_phone_title">用手机或电脑设置</string>
+    <string name="wp_phone_body">扫码，或在电脑浏览器打开下面的地址，可以发照片和视频、更换 App 图标、设置天气城市。需要和电视连接同一网络。</string>
+    <string name="wp_phone_offline">电视联网后即可用手机或电脑设置。</string>
     <string name="ss_start">立即开始</string>
     <string name="ss_delay">开始时间</string>
     <string name="ss_minutes">%d 分钟</string>
     <string name="ss_never">从不</string>
+    <string name="ss_delay_system">跟随系统</string>
+    <string name="ss_delay_system_off">跟随系统 · 已关闭</string>
+    <string name="ss_delay_system_minutes">跟随系统 · %d 分钟</string>
     <string name="ss_back_hint">提示：在主页第一行按返回键，也可以立即开始屏保。</string>
     <string name="ss_back">返回键</string>
     <string name="ss_back_on">开始屏保</string>
     <string name="ss_back_off">不响应</string>
     <string name="ss_back_choice_hint">在主页第一行按返回键时做什么。容易误按的话可以关掉，屏保仍会按时自动开始。</string>
     <string name="ss_quality">航拍画质</string>
-    <string name="ss_quality_hint">「自动」播放这台电视能显示的最好版本：4K 杜比视界、4K 或 1080p。4K 杜比视界需要约 25 Mbps 的网速，航拍经常跳过时可以选 1080p。</string>
+    <string name="ss_quality_hint">「自动」播放这台电视能显示的最好版本：4K 杜比视界、4K 或 1080p。壁纸是航拍时，屏保沿用壁纸的画质接着播，不会黑屏；选了「4K 杜比视界」则屏保切到杜比视界，切换时电视可能黑一下。4K 杜比视界需要约 25 Mbps 的网速，航拍经常跳过时可以选 1080p。</string>
     <string name="ss_quality_auto">自动</string>
     <string name="ss_quality_hd">1080p</string>
     <string name="ss_quality_uhd">4K</string>
@@ -129,10 +133,6 @@
     <string name="st_names_focused">只显示选中的</string>
     <string name="st_names_all">全部显示</string>
     <string name="st_names_hint">每个 App 下面都显示名称，或者像 Apple TV 一样只显示选中的。全部显示时，第一排的名称也显示在玻璃底板里。</string>
-    <string name="st_icon_library">App 图标</string>
-    <string name="st_icon_library_on">精选图</string>
-    <string name="st_icon_library_off">App 自带</string>
-    <string name="st_icon_library_hint">热门 App 用现成的精选图，只下载这台电视上装了的 App。关掉后，磁贴都从 App 自带的横幅或图标生成。你在手机上换的图片始终优先。</string>
     <string name="ss_kind">类型</string>
     <string name="wp_weather_city">位置</string>
     <string name="st_home_standard">双排</string>
@@ -190,6 +190,7 @@
     <string name="cc_update_downloading">正在下载… %d%%</string>
     <string name="cc_update_opened">已打开安装程序，按提示确认更新（小米上是「继续更新」）。装好后按「完成」，会回到 Aerial，设置都保留。</string>
     <string name="cc_update_permission">请在刚打开的设置里允许 Aerial 安装应用，然后回来再点一次「下载并安装」。</string>
+    <string name="cc_update_storage_permission">这台电视需要存储权限才能保存更新。请允许弹出的文件权限请求，再点一次「下载并安装」。</string>
     <string name="cc_update_failed_download">下载没有成功（官网和 GitHub 都试过了）。检查网络后再试，或者用下面的命令升级。</string>
     <string name="cc_update_failed_blocked">这台电视不让 App 安装别的 App，请用下面的命令升级。</string>
     <string name="cc_update_failed_signature">这台电视上的 Aerial 和官方版本签名不同，不能直接覆盖。</string>
@@ -218,6 +219,8 @@
     <string name="weather_snow">雪</string>
     <string name="weather_thunder">雷雨</string>
     <string name="weather_high_low">最高 %1$d°  最低 %2$d°</string>
+    <string name="st_columns">每排 App</string>
+    <string name="st_columns_hint">主屏幕和文件夹里每排放几个 App。6 个一眼看到更多；4 个图标更大，离得远也看得清。</string>
     <string name="st_peek">第二排</string>
     <string name="st_peek_show">露出一点</string>
     <string name="st_peek_hide">不露出</string>
@@ -235,11 +238,13 @@
     <string name="ss_system">系统内置</string>
     <string name="ss_system_hint">用电视自带的屏保（比如小米的那些画面），Aerial 不再显示自己的屏保。</string>
     <string name="wp_videos_note">你从手机发来的视频，静音、一个接一个播放。和航拍一样会动，按键时停在当前画面。</string>
+    <string name="wp_videos_rotate">我的视频 · 轮播</string>
+    <string name="wp_video_note">你从手机发来的这个视频，静音、循环播放。和航拍一样会动，按键时停在当前画面。</string>
     <string name="wp_source_note">这个信号源的实时画面，没有声音，打开这个信号源才有声音。往下选 App 时换成磨砂背景；没有画面时显示深色背景。</string>
     <string name="st_play">播放</string>
     <string name="st_play_still">静止时</string>
     <string name="st_play_always">一直</string>
-    <string name="st_play_hint">静止时：在第一排停 10 秒后播放，按键停下。一直：按键不停，背景压暗一点；进入下面的 App 时停下。</string>
+    <string name="st_play_hint">静止时：在第一排（双排时前两排）停 10 秒后播放，按键停下。一直：按键不停，背景压暗一点；再往下进入其余 App 时停下。</string>
     <string name="ss_show_time">时间</string>
     <string name="ss_show_time_hint">航拍和照片屏保上的时间。时间和地名会不时挪一点位置，避免烧屏。</string>
     <string name="tv_no_source">无频道</string>

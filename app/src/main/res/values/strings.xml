@@ -32,6 +32,7 @@
     <string name="net_ethernet">Ethernet</string>
     <string name="net_wifi">Wi-Fi</string>
     <string name="net_offline">Not Connected</string>
+    <string name="net_vpn">VPN</string>
 
     <string name="input_connected">Connected</string>
     <string name="input_live_tv">Live TV</string>
@@ -86,7 +87,7 @@
     <string name="wx_snow">Snow</string>
     <string name="wx_thunder">Thunderstorm</string>
     <string name="wp_daily_latest">Daily Photo</string>
-    <string name="wp_live">Moving aerial films. They start after 10 seconds still on the top row of Home and stop on the frame showing at any key, which stays as the picture; the next film picks up from there.</string>
+    <string name="wp_live">Moving aerial films. They play while Home is on the top row (either row in two rows) and stop on the frame showing when you go further down to the apps, which stays as the picture; the next film picks up from there.</string>
     <string name="wp_photos_rotate">My Photos, Daily</string>
     <string name="wp_daily_note">Bing\'s photo of the day, changing to the new one every day.</string>
     <string name="wp_photos_rotate_note">A different one of your photos each day.</string>
@@ -97,20 +98,23 @@
     <string name="ss_aerial">Aerial</string>
     <string name="ss_photos">Photos</string>
     <string name="ss_clock">Clock</string>
-    <string name="wp_phone_title">Set up with your phone</string>
-    <string name="wp_phone_body">Scan to send photos as wallpapers, change app icons and set the weather\'s city from your phone. Phone and TV must be on the same network.</string>
-    <string name="wp_phone_offline">Connect the TV to a network to set up with your phone.</string>
+    <string name="wp_phone_title">Set up from a phone or computer</string>
+    <string name="wp_phone_body">Scan the code, or open the address below in a computer\'s browser, to send photos and videos, change app icons and set the weather\'s city. It must be on the same network as the TV.</string>
+    <string name="wp_phone_offline">Connect the TV to a network to set it up from a phone or computer.</string>
     <string name="ss_start">Start Now</string>
     <string name="ss_delay">Start after</string>
     <string name="ss_minutes">%d min</string>
     <string name="ss_never">Never</string>
+    <string name="ss_delay_system">Follows the TV</string>
+    <string name="ss_delay_system_off">Follows the TV · off</string>
+    <string name="ss_delay_system_minutes">Follows the TV · %d min</string>
     <string name="ss_back_hint">Tip: press Back on the top row of Home to start the screensaver.</string>
     <string name="ss_back">Back Button</string>
     <string name="ss_back_on">Starts It</string>
     <string name="ss_back_off">Does Nothing</string>
     <string name="ss_back_choice_hint">What Back does on the top row of Home. Turn it off if it gets pressed by accident; the screensaver still starts on its own.</string>
     <string name="ss_quality">Aerial Quality</string>
-    <string name="ss_quality_hint">Auto plays the best this TV can show: 4K Dolby Vision, 4K or 1080p. 4K Dolby Vision needs about 25 Mbps; choose 1080p if films often skip.</string>
+    <string name="ss_quality_hint">Auto plays the best this TV can show: 4K Dolby Vision, 4K or 1080p. Over the aerial wallpaper the screensaver goes on in the wallpaper\'s format, without a blink; with 4K Dolby Vision chosen it switches to Dolby Vision, and the TV may go black for a moment. 4K Dolby Vision needs about 25 Mbps; choose 1080p if films often skip.</string>
     <string name="ss_quality_auto">Auto</string>
     <string name="ss_quality_hd">1080p</string>
     <string name="ss_quality_uhd">4K</string>
@@ -130,10 +134,6 @@
     <string name="st_names_focused">Selected App</string>
     <string name="st_names_all">All Apps</string>
     <string name="st_names_hint">Names under every app, or only under the selected one, as on Apple TV. With every name shown, the top row\'s names sit on its glass plate too.</string>
-    <string name="st_icon_library">App Pictures</string>
-    <string name="st_icon_library_on">Ready-made</string>
-    <string name="st_icon_library_off">From the App</string>
-    <string name="st_icon_library_hint">Popular apps get a ready-made picture from Aerial\'s website, downloaded only for the apps on this TV. Off, every tile is drawn from the app\'s own banner or icon. A picture you chose on your phone always comes first.</string>
     <string name="ss_kind">Style</string>
     <string name="wp_weather_city">Location</string>
     <string name="st_home_standard">Two Rows</string>
@@ -191,6 +191,7 @@
     <string name="cc_update_downloading">Downloading… %d%%</string>
     <string name="cc_update_opened">The installer is open: confirm the update there. When it is done, choose Done to come back to Aerial, with every setting kept.</string>
     <string name="cc_update_permission">Allow Aerial to install apps in the settings that just opened, then come back and choose Download and Install again.</string>
+    <string name="cc_update_storage_permission">This TV needs storage access to save the update. Allow the file permission request, then choose Download and Install again.</string>
     <string name="cc_update_failed_download">The download did not finish (both the website and GitHub were tried). Check the network and try again, or update with the command below.</string>
     <string name="cc_update_failed_blocked">This TV does not let apps install other apps. Update with the command below.</string>
     <string name="cc_update_failed_signature">The Aerial on this TV is signed differently from the official one, so it cannot be updated over.</string>
@@ -219,6 +220,8 @@
     <string name="weather_snow">Snow</string>
     <string name="weather_thunder">Thunderstorms</string>
     <string name="weather_high_low">H:%1$d°  L:%2$d°</string>
+    <string name="st_columns">Apps per Row</string>
+    <string name="st_columns_hint">How many apps fit across Home, and in folders. Six shows more at a glance; four makes them larger, easier to see from across the room.</string>
     <string name="st_peek">Second Row</string>
     <string name="st_peek_show">Peek</string>
     <string name="st_peek_hide">Hidden</string>
@@ -236,11 +239,13 @@
     <string name="ss_system">System</string>
     <string name="ss_system_hint">The TV\'s own screensaver, as it came with the TV (Xiaomi\'s pictures, for one). Aerial shows none of its own.</string>
     <string name="wp_videos_note">Your own videos, sent from the phone, silent and one after another. They move like the aerial films and stop on the frame showing.</string>
+    <string name="wp_videos_rotate">My Videos, In Turn</string>
+    <string name="wp_video_note">Your own video, sent from the phone, silent and on a loop. It moves like the aerial films and stops on the frame showing.</string>
     <string name="wp_source_note">This input\'s live picture behind Home, without sound; open the input for sound. Going down to the apps, it gives way to a frosted background. A dark picture shows while the input has nothing to show.</string>
     <string name="st_play">Playing</string>
     <string name="st_play_still">When still</string>
     <string name="st_play_always">Always</string>
-    <string name="st_play_hint">When still: after 10 seconds on the top row; a key stops it. Always: keys do not stop it, and it is shaded a little; it stops when you go down to the apps.</string>
+    <string name="st_play_hint">When still: after 10 seconds on the top row (either row in two rows); a key stops it. Always: keys do not stop it, and it is shaded a little; it stops when you go further down to the apps.</string>
     <string name="ss_show_time">Time</string>
     <string name="ss_show_time_hint">The time over the aerial and photo screensavers. The time and place name move a little now and then, so nothing stays on the same pixels.</string>
     <string name="tv_no_source">No channels</string>

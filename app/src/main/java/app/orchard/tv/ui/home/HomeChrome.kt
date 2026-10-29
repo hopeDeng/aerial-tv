@@ -12,9 +12,16 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -28,6 +35,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.flow.first
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -42,10 +51,13 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.findRootCoordinates
+import androidx.compose.ui.layout.AlignmentLine
+import androidx.compose.ui.layout.FirstBaseline
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.TextUnit
@@ -56,15 +68,25 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -78,9 +100,11 @@ import app.orchard.tv.ui.components.Dissolve
 import app.orchard.tv.ui.components.Pressable
 import app.orchard.tv.ui.components.frozen
 import app.orchard.tv.ui.components.glassEdge
+import app.orchard.tv.ui.components.rememberFrostSwap
 import app.orchard.tv.ui.components.smoothMask
 import app.orchard.tv.ui.theme.Glyph
 import app.orchard.tv.ui.theme.GlyphIcon
+import app.orchard.tv.ui.theme.LocalReducedMotion
 import app.orchard.tv.ui.theme.Motion
 import app.orchard.tv.ui.theme.Palette
 import app.orchard.tv.ui.theme.Type
@@ -170,15 +194,18 @@ fun dateText(now: LocalDateTime): String {
 /**
  * The home background, in two states as on tvOS 26. Focus in the top row: the picture itself, with
  * a plate of Liquid Glass under the row ([plate], in px at scroll 0). Focus down in the grid: the
- * whole screen turns to the picture frosted and darker, so the rows read over anything.
+ * whole screen turns to the plate's glass, the picture frosted and milky, not darkened (issue
+ * #727: a darkened picture read as another background), so the plate spreads into it.
  *
  * Everything follows [scroll] (the grid's scroll, [collapse] being where the grid has fully come
  * in), so the change is exactly as fast as the movement that causes it. Nothing is blurred live:
- * the frosted copy is baked small ahead of time (Images.frost) and darkened here once, and the
- * plate shows the part of that frosted copy that lies under it, stretched over the screen through
- * a shader. At rest a frame is one full-screen draw (plus the plate in the top row); both pictures
- * are drawn only through the middle of the scroll, since each frame that draws both costs a second
- * full-screen fill (Xiaomi MiTV-MFTR0: 90th percentile 20 -> 30 ms when the crossfade ran end to end).
+ * the plate shows the part of a frosted copy baked small ahead of time (Images.frost) that lies
+ * under it, stretched over the screen through a shader; the grid draws that same small glass
+ * stretched. At rest a frame is one full-screen draw (plus the plate in the top row); both
+ * pictures are drawn only through the middle of the scroll, since each frame that draws both costs
+ * a second full-screen fill (Xiaomi MiTV-MFTR0: 90th percentile 20 -> 30 ms when the crossfade
+ * ran end to end). Not the sharp picture dimmed by a colour filter instead: stretching the
+ * full-size picture each frame made scrolling slower (MFTR0: median 40 -> 65 ms).
  */
 @Composable
 fun HomeBackground(
@@ -200,62 +227,123 @@ fun HomeBackground(
     filmStopped: () -> Float = { 0f },
     /** How far Home has given way to the screensaver carrying its wallpaper on: the plate goes. */
     toSaver: () -> Float = { 0f },
+    /**
+     * The glass for a moving film (Wallpapers.filmFrost, or [frosted] until it has one): the plate
+     * stays over the film on it. Null where the film has none (an input's picture): the plate is
+     * the smoke and the lit edge alone.
+     */
+    filmGlass: ImageBitmap? = null,
     /** The wallpaper's picture unshaded, shown [saverReveal] of the way and [saverPush] into its draw-in. */
     saverImage: ImageBitmap? = null,
     saverReveal: () -> Float = { 0f },
     saverPush: () -> Float = { 0f },
+    /** How far Home is lifted on its shelf, apart from [scroll]: the plate goes up with the row, nothing fades. */
+    lift: () -> Float = { 0f },
+    /** The chosen wallpaper: a new [frosted] of the same one waits for the top row (see Pictures). */
+    wallpaper: String? = null,
+    /**
+     * The film is the aerial wallpaper's, whose glass for where it stopped is ready once
+     * [filmStopped]: until then the grid shows [filmGlass], the glass it had while it moved.
+     */
+    glassAwaitsStop: Boolean = false,
+    /** The grid's own glass, where it is not the picture's ([frosted]): the aerial film's (Wallpapers.clipGlass). */
+    gridGlass: ImageBitmap? = null,
 ) {
     Box(Modifier.fillMaxSize()) {
         // Over a paused film, under the pictures: the shading its picture will have. The picture
         // fades in over it as the film gives way, so the screen keeps the same light throughout.
         Canvas(Modifier.fillMaxSize()) {
             val stopped = maxOf(filmStopped(), if (shadeMoving) cover() else 0f)
-            // Deep in the grid its frosted background covers everything.
+            // Deep in the grid its glass covers everything.
             if (stopped < 0.01f || cover() < 0.01f || scroll() > collapse * 0.7f) return@Canvas
             drawRect(Brush.verticalGradient(*Images.SHADE_AT.indices.map { Images.SHADE_AT[it] to Color.Black.copy(alpha = Images.SHADE[it]) }.toTypedArray()), alpha = stopped)
             drawRect(Brush.horizontalGradient(0f to Color.Black.copy(alpha = Images.SHADE_LEFT), 1f to Color.Transparent, endX = size.width / 2), alpha = stopped)
         }
-        Pictures(backdrop, frosted, scroll, collapse, cover)
+        Pictures(backdrop, gridGlass ?: frosted, filmGlass.takeIf { glassAwaitsStop }, wallpaper, scroll, collapse, cover, filmStopped, toSaver)
         if (saverImage != null) Canvas(Modifier.fillMaxSize()) {
             val a = saverReveal()
             if (a > 0.01f) drawDrawingIn(saverImage, saverPush(), a)
         }
-        Plate(frosted ?: backdrop, plate, scroll, collapse, cover, filmStopped, toSaver)
+        Plate(frosted ?: backdrop, filmGlass, plate, scroll, collapse, cover, filmStopped, toSaver, lift)
     }
 }
 
 /**
- * The sharp picture and the grid's frosted one. A new wallpaper fades in over the old, which stays
- * whole beneath it: crossfaded, the screen dimmed half-way through.
+ * The sharp picture and the grid's glass. A new wallpaper fades in over the old, which stays whole
+ * beneath it: crossfaded, the screen dimmed half-way through.
+ *
+ * The glass the grid shows stays while it shows (issue #727): a new [frosted] of the same
+ * [wallpaper] (the aerial film stopped somewhere new: the exact frame's glass a few seconds after
+ * it stopped) waits until the glass is out of sight, on the top row, where the plate takes it over
+ * with its own fade. A film that has just stopped shows [filmGlass], the glass it had moving, until
+ * the glass of where it stopped is in, which is mostly that same frame's (LiveWallpaper): holding
+ * the grid's glass back meanwhile showed the film sharp as the grid came in, then frosted.
  */
 @Composable
-private fun Pictures(backdrop: ImageBitmap?, frosted: ImageBitmap?, scroll: () -> Float, collapse: Float, cover: () -> Float) {
+private fun Pictures(
+    backdrop: ImageBitmap?,
+    frosted: ImageBitmap?,
+    filmGlass: ImageBitmap?,
+    wallpaper: String?,
+    scroll: () -> Float,
+    collapse: Float,
+    cover: () -> Float,
+    filmStopped: () -> Float,
+    toSaver: () -> Float,
+) {
+    // The grid's glass goes as the film carries on into the screensaver, as the apps do: the
+    // screensaver over it is see-through, and the film showed frosted under it.
+    fun gridGlass(): Float = (((scroll() / collapse).coerceIn(0f, 1f) - 0.3f) / 0.4f).coerceIn(0f, 1f) * (1f - toSaver())
+    fun moving(): Boolean = filmGlass != null && cover() > 0.01f && filmStopped() < 0.99f
+    var held by remember { mutableStateOf(frosted to wallpaper) }
+    LaunchedEffect(frosted, wallpaper) {
+        if (wallpaper == held.second) snapshotFlow { gridGlass() < 0.01f || moving() }.first { it }
+        held = frosted to wallpaper
+    }
     Dissolve(
-        targetState = backdrop to frosted,
+        targetState = backdrop,
         durationMs = 450,
         easing = Motion.EaseOut,
         modifier = Modifier.fillMaxSize(),
         label = "ambient",
-    ) { (bmp, frost) ->
+    ) { bmp ->
         // In "Follow App" mode there is no frosted copy: the app's light is small and soft
-        // already, so it makes the glass itself.
-        val glassSrc = frost ?: bmp
-        val dark = remember(glassSrc) { glassSrc?.let { darkened(it, GRID_SHADE) } }
+        // already, so it makes the glass itself, changing with it.
+        val own = remember(bmp, frosted == null) { bmp?.takeIf { frosted == null }?.let(::plateTinted) }
         Canvas(Modifier.fillMaxSize()) {
             val film = cover()
             // On the top row, the film alone through the window: nothing of Compose's full-screen.
             if (film > 0.99f && scroll() < collapse * 0.3f) return@Canvas
-            if (bmp == null || dark == null) {
+            if (bmp == null) {
                 drawRect(Color.Black)
                 return@Canvas
             }
             val full = IntSize(size.width.roundToInt(), size.height.roundToInt())
-            val p = (scroll() / collapse).coerceIn(0f, 1f)
-            // The sharp picture and the grid's frosted one cross only through the middle of the
+            // The sharp picture and the grid's glass cross only through the middle of the
             // scroll; each end is one full-screen draw.
-            val g = ((p - 0.3f) / 0.4f).coerceIn(0f, 1f)
+            val g = gridGlass()
             if (g < 0.99f && film < 0.99f) drawImage(bmp, dstSize = full, filterQuality = FilterQuality.Low, alpha = 1f - film)
-            if (g > 0.01f) drawImage(dark, dstSize = full, filterQuality = FilterQuality.Low, alpha = g)
+            if (own != null && g > 0.01f) drawImage(own, dstSize = full, filterQuality = FilterQuality.Low, alpha = g)
+        }
+    }
+    // The glass of the chosen wallpaper: a new wallpaper fades in, a new glass of the same one is
+    // put in only where it does not show.
+    AnimatedContent(
+        targetState = held,
+        contentKey = { it.second },
+        transitionSpec = {
+            (fadeIn(tween(450, easing = Motion.EaseOut)) togetherWith ExitTransition.KeepUntilTransitionsFinished).using(null)
+        },
+        modifier = Modifier.fillMaxSize(),
+        label = "glass",
+    ) { (frost, _) ->
+        val glass = remember(frost) { frost?.let(::plateTinted) }
+        val moved = remember(filmGlass) { filmGlass?.let(::plateTinted) }
+        Canvas(Modifier.fillMaxSize()) {
+            val g = gridGlass()
+            if (g < 0.01f) return@Canvas
+            val src = (if (moving()) moved else null) ?: glass ?: return@Canvas
+            drawImage(src, dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt()), filterQuality = FilterQuality.Low, alpha = g)
         }
     }
 }
@@ -265,9 +353,16 @@ private fun Pictures(backdrop: ImageBitmap?, frosted: ImageBitmap?, scroll: () -
  * once stopped. It gives way only to a moving film, so the swap from the paused film to its
  * picture leaves it as it is. A new glass fades in over the old one, which stays whole beneath
  * it: two plates fading against each other let what is behind show through halfway.
+ *
+ * Under it, while a film moves, the film's plate ([film]): a film under the window cannot be
+ * blurred, so a small key frame of it, frosted, a few seconds old (LiveWallpaper), lies
+ * [FILM_FROST] of the way over the film, and a smoke tint and the lit edge over both. The film
+ * shows through moving, so the frame's lag reads as the glass's softness. With no [film] (an
+ * input's picture) only the smoke and the edge. Drawn only as the plate
+ * moves or a new frame fades in, every [GLASS_EVERY_MS]: the film plays with Compose all but still.
  */
 @Composable
-private fun Plate(glass: ImageBitmap?, plate: Rect?, scroll: () -> Float, collapse: Float, cover: () -> Float, filmStopped: () -> Float, toSaver: () -> Float) {
+private fun Plate(glass: ImageBitmap?, film: ImageBitmap?, plate: Rect?, scroll: () -> Float, collapse: Float, cover: () -> Float, filmStopped: () -> Float, toSaver: () -> Float, lift: () -> Float) {
     var shown by remember { mutableStateOf(glass) }
     var under by remember { mutableStateOf<ImageBitmap?>(null) }
     val swap = remember { Animatable(1f) }
@@ -293,18 +388,77 @@ private fun Plate(glass: ImageBitmap?, plate: Rect?, scroll: () -> Float, collap
     }
     val top = remember(shown) { shown?.let { PlateLayer(plateTinted(it)) } }
     val bottom = remember(under) { under?.let { PlateLayer(plateTinted(it)) } }
-    Canvas(Modifier.fillMaxSize()) {
+
+    // Each new frame is baked off the main thread: baked while drawing, as the still plate's glass
+    // is, it held up a frame every few seconds (Xiaomi MiTV-MFTR0: frames of 50-70 ms).
+    val density = LocalDensity.current
+    var screen by remember { mutableStateOf(Size.Zero) }
+    var filmTop by remember { mutableStateOf<ImageBitmap?>(null) }
+    var filmBottom by remember { mutableStateOf<ImageBitmap?>(null) }
+    var smoke by remember { mutableStateOf<ImageBitmap?>(null) }
+    val filmSwap = remember { Animatable(1f) }
+    LaunchedEffect(plate, screen) {
+        if (plate == null || screen == Size.Zero) return@LaunchedEffect
+        smoke = withContext(Dispatchers.Default) { bakePlate(smokeGlass(), screen, plate, with(density) { PlateCorner.toPx() }, with(density) { 1.2.dp.toPx() }) }
+    }
+    LaunchedEffect(film, plate, screen) {
+        if (film == null || plate == null || screen == Size.Zero) {
+            filmTop = null
+            filmBottom = null
+            return@LaunchedEffect
+        }
+        val baked = withContext(Dispatchers.Default) { bakePlate(plateTinted(film), screen, plate, with(density) { PlateCorner.toPx() }, 0f, edge = false) }
+        // Not on screen: the new frame simply takes over.
+        if (filmTop == null || cover() < 0.01f) {
+            filmTop = baked
+            filmBottom = null
+            filmSwap.snapTo(1f)
+            return@LaunchedEffect
+        }
+        filmBottom = filmTop.takeIf { filmSwap.value > 0.5f } ?: filmBottom
+        filmTop = baked
+        filmSwap.snapTo(0f)
+        filmSwap.animateTo(1f, tween(FILM_SWAP_MS, easing = Motion.EaseOut))
+        filmBottom = null
+    }
+    val frostPaint = remember { androidx.compose.ui.graphics.Paint() }
+
+    Canvas(Modifier.fillMaxSize().onSizeChanged { screen = Size(it.width.toFloat(), it.height.toFloat()) }) {
         if (plate == null) return@Canvas
+        val alpha = visibility()
+        // The film's plate, while the film shows and the plate over a picture does not hide it.
+        // With no frame to frost (an input's picture, which cannot be copied) it is the smoke and
+        // the lit edge alone, so the top row keeps a plate over anything.
+        val base = (1f - smooth(((scroll() / collapse).coerceIn(0f, 1f) / 0.55f).coerceIn(0f, 1f))) * (1f - toSaver())
+        val frame = filmTop
+        val edge = smoke
+        if (edge != null && cover() > 0.01f && alpha < 0.99f && base > 0.01f) {
+            val p = (scroll() / collapse).coerceIn(0f, 1f)
+            val r = plate.translate(0f, -scroll() - lift()).inflate(PlateSwell.toPx() * smooth((p / 0.55f).coerceIn(0f, 1f)))
+            val t = filmSwap.value
+            val under = filmBottom
+            // The old frame whole under the new, both in one layer laid over the film at FILM_FROST.
+            if (frame != null && t < 1f && under != null) {
+                frostPaint.alpha = FILM_FROST * base
+                drawContext.canvas.saveLayer(r, frostPaint)
+                drawBaked(under, r, 1f)
+                drawBaked(frame, r, t)
+                drawContext.canvas.restore()
+            } else if (frame != null) {
+                drawBaked(frame, r, FILM_FROST * base)
+            }
+            drawBaked(edge, r, base)
+        }
+
         // The plate rides with its row and dissolves into the frosted background: it fades
         // over the first half of the scroll, swelling a little as if lifting off, and settles
         // back the same way when focus returns to the top row. Kept small on purpose: the
         // whole screen shrinking back into the plate read as too much.
         val p = (scroll() / collapse).coerceIn(0f, 1f)
         val rest = 1f - smooth((p / 0.55f).coerceIn(0f, 1f))
-        val alpha = visibility()
         if (alpha < 0.01f) return@Canvas
         val grow = PlateSwell.toPx() * (1f - rest)
-        val r = plate.translate(0f, -scroll()).inflate(grow)
+        val r = plate.translate(0f, -scroll() - lift()).inflate(grow)
         val t = swap.value
         if (t < 1f) bottom?.draw(this, plate, r, alpha)
         top?.draw(this, plate, r, if (bottom != null) alpha * t else alpha)
@@ -324,17 +478,36 @@ private class PlateLayer(private val src: ImageBitmap) {
     fun draw(scope: androidx.compose.ui.graphics.drawscope.DrawScope, plate: Rect, at: Rect, alpha: Float) = with(scope) {
         val image = baked?.takeIf { it.first == size to plate }?.second
             ?: bakePlate(src, size, plate, PlateCorner.toPx(), 1.2.dp.toPx()).also { baked = (size to plate) to it }
-        drawImage(
-            image,
-            dstOffset = IntOffset(at.left.roundToInt(), at.top.roundToInt()),
-            dstSize = IntSize(at.width.roundToInt(), at.height.roundToInt()),
-            alpha = alpha,
-            filterQuality = FilterQuality.Low,
-        )
+        drawBaked(image, at, alpha)
     }
 }
 
+/** A plate baked at its resting place, drawn stretched to [at]. */
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawBaked(image: ImageBitmap, at: Rect, alpha: Float) = drawImage(
+    image,
+    dstOffset = IntOffset(at.left.roundToInt(), at.top.roundToInt()),
+    dstSize = IntSize(at.width.roundToInt(), at.height.roundToInt()),
+    alpha = alpha,
+    filterQuality = FilterQuality.Low,
+)
+
 private fun smooth(x: Float) = x * x * (3f - 2f * x)
+
+/** The film plate's tint over the film and its frosted frame, as one pixel the plate stretches. */
+private fun smokeGlass(): ImageBitmap =
+    android.graphics.Bitmap.createBitmap(1, 1, android.graphics.Bitmap.Config.ARGB_8888)
+        .apply { eraseColor(FILM_SMOKE) }.asImageBitmap()
+
+/** How much of the film plate is its frosted key frame; the rest is the film itself, moving. */
+private const val FILM_FROST = 0.55f
+
+/** The film plate's smoke: a little black, so the tiles keep their contrast over a bright film.
+ *  Spelled as an int, not Color.argb: a top-level Android call would break a JVM unit test that
+ *  only wants the plate's dp constants (the live slot's geometry). */
+private val FILM_SMOKE = (46 shl 24)
+
+/** A new key frame fades in over the last: slow, as the glass is soft, and seldom (GLASS_EVERY_MS). */
+private const val FILM_SWAP_MS = 700
 
 /** The Liquid Glass plate under the top row: how far it reaches past the tiles, and its corners. */
 val PlatePadH = 26.dp
@@ -345,7 +518,7 @@ private val PlateCorner = 32.dp
 val PillTop = 28.dp
 val PillHeight = 34.dp
 
-/** The grid's background: the frosted picture under this much black. */
+/** Panels' background (PanelBackdrop): the frosted picture under this much black. */
 private const val GRID_SHADE = 0.55f
 
 /** How much the plate swells as it dissolves into the grid's background. */
@@ -368,7 +541,7 @@ private fun plateTinted(src: ImageBitmap): ImageBitmap {
 }
 
 /** The part of [glass] (stretched over [screen]) under [plate], cut to the plate's outline, with its lit edge. */
-private fun bakePlate(glass: ImageBitmap, screen: Size, plate: Rect, radius: Float, rim: Float): ImageBitmap {
+private fun bakePlate(glass: ImageBitmap, screen: Size, plate: Rect, radius: Float, rim: Float, edge: Boolean = true): ImageBitmap {
     val w = plate.width.roundToInt().coerceAtLeast(1)
     val h = plate.height.roundToInt().coerceAtLeast(1)
     val out = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
@@ -379,7 +552,7 @@ private fun bakePlate(glass: ImageBitmap, screen: Size, plate: Rect, radius: Flo
         android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG),
     )
     canvas.drawBitmap(smoothMask(w, h, radius), 0f, 0f, android.graphics.Paint().apply { xfermode = android.graphics.PorterDuffXfermode(PorterDuff.Mode.DST_IN) })
-    canvas.drawBitmap(glassEdge(w, h, radius, rim).asAndroidBitmap(), 0f, 0f, null)
+    if (edge) canvas.drawBitmap(glassEdge(w, h, radius, rim).asAndroidBitmap(), 0f, 0f, null)
     return out.frozen().asImageBitmap()
 }
 
@@ -392,12 +565,19 @@ private fun bakePlate(glass: ImageBitmap, screen: Size, plate: Rect, radius: Flo
  */
 @Composable
 fun PanelBackdrop(frosted: ImageBitmap?, frost: () -> Float, veil: () -> Float) {
-    val dark = remember(frosted) { frosted?.let { darkened(it, GRID_SHADE) } }
+    val (shown, under, swap) = rememberFrostSwap(frosted)
+    val dark = remember(shown) { shown?.let { darkened(it, GRID_SHADE) } }
+    val darkUnder = remember(under) { under?.let { darkened(it, GRID_SHADE) } }
     Canvas(Modifier.fillMaxSize()) {
         val f = frost()
         if (f >= 0.01f) {
+            val full = IntSize(size.width.roundToInt(), size.height.roundToInt())
+            val t = swap()
             if (dark == null) drawRect(Color.Black, alpha = 0.55f * f)
-            else drawImage(dark, dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt()), filterQuality = FilterQuality.Low, alpha = f)
+            else if (darkUnder != null && t < 1f) {
+                drawImage(darkUnder, dstSize = full, filterQuality = FilterQuality.Low, alpha = f)
+                drawImage(dark, dstSize = full, filterQuality = FilterQuality.Low, alpha = f * t)
+            } else drawImage(dark, dstSize = full, filterQuality = FilterQuality.Low, alpha = f)
         }
         val v = veil()
         if (v >= 0.01f) drawRect(Color.Black, alpha = 0.45f * v)
@@ -412,10 +592,11 @@ private fun darkened(src: ImageBitmap, alpha: Float): ImageBitmap {
 }
 
 /**
- * The large clock, as on the lock screen: the date (in Chinese, with the lunar one) over the time,
- * and under it the weather, the city it is for (issue #59) and today's high and low. Left or right,
- * the three lines share one edge, the tiles' edge. The digits stay proportional: tabular ones leave a narrow "1" short of
- * that edge. A soft shadow keeps them readable on bright photos. The clock screensaver shows the same.
+ * The large clock, as on the lock screen: the date (in Chinese, with the lunar one) over the time
+ * in heavy digits, and under it the weather, the city it is for (issue #59) and today's high and
+ * low. Left or right, the three lines share one edge, the tiles' edge. Each line's box is its
+ * capitals' height ([capBox]), so the gaps between them are the gaps a reader sees. A soft shadow
+ * keeps them readable on bright photos. The clock screensaver shows the same.
  */
 @Composable
 fun ShelfClock(
@@ -426,28 +607,52 @@ fun ShelfClock(
     toSaver: () -> Float = { 0f },
     /** The screensaver is up over Home, carrying this clock: it wanders as the screensaver's does. */
     saving: Boolean = false,
+    /** The screensaver is carrying Home's wallpaper on: the date and weather go before the time moves. */
+    away: Boolean = false,
     /** The weather line as a control, where the remote leads from it; null keeps it plain text. */
     weather: WeatherControls? = null,
 ) {
-    val drift = if (saving) saverDrift(now) else DpOffset.Zero
+    val drift = heldDrift(saving, now)
     val shadow = Shadow(Color.Black.copy(alpha = 0.28f), Offset(0f, 2f), blurRadius = 18f)
-    val secondary = Color.White.copy(alpha = 0.78f)
-    val aside = Modifier.graphicsLayer { alpha = 1f - (toSaver() * 2.5f).coerceIn(0f, 1f) }
+    val dim = Color.White.copy(alpha = 0.72f)
+    // Gone in the first 400 ms, while the time has barely set off (its 2 s ease-in-out). Fading
+    // along its progress (1.52), they were still there as the time rose through the date, and over
+    // a moving film, at 8-10 frames a second on Xiaomi MiTV-MFTR0, they read as cut away in steps.
+    // Back on Home they return once the time is nearly in place (CLOCK_BACK_MS), as they went.
+    val reduced = LocalReducedMotion.current
+    val asideGone by animateFloatAsState(
+        if (away) 1f else 0f,
+        if (reduced) snap() else if (away) tween(400, easing = Motion.EaseOut) else tween(400, delayMillis = CLOCK_BACK_MS * 7 / 10, easing = Motion.EaseOut),
+        label = "clock-aside",
+    )
+    val aside = Modifier.graphicsLayer {
+        alpha = 1f - asideGone
+        // No offscreen buffer: it would be the line's capBox, and while the line faded the Chinese,
+        // the icon and the shadow above and below it were cut off, the whole line springing open
+        // as the fade ended (the owner, Xiaomi MiTV-MFTR0).
+        compositingStrategy = CompositingStrategy.ModulateAlpha
+    }
     Column(modifier, horizontalAlignment = if (alignEnd) Alignment.End else Alignment.Start) {
         // On a TV set to Chinese, the Chinese calendar's date follows, as on the iPhone's lock screen.
         val lunar = if (Locale.getDefault().language == "zh") Lunar.text(now.toLocalDate()) else null
-        val date = dateText(now).let { if (lunar != null) "$it  $lunar" else it }
-        BasicText(date, style = Type.Title.copy(color = Color.White.copy(alpha = 0.9f), shadow = shadow), modifier = aside)
+        BasicText(
+            buildAnnotatedString {
+                append(dateText(now))
+                if (lunar != null) withStyle(SpanStyle(color = dim, fontWeight = FontWeight.W500)) { append("  $lunar") }
+            },
+            style = Type.ClockDate.copy(shadow = shadow),
+            modifier = aside.capBox(Type.ClockDate.fontSize),
+        )
         BasicText(
             timeText(now),
             style = Type.Clock.copy(shadow = shadow),
-            // The digits' cap top, in the trimmed box: the 104sp line puts it 7.6dp down, less the trim.
-            modifier = Modifier.toSaverClock(toSaver, Type.Clock.fontSize, 7.6.dp - ClockTrimTop, drift)
-                .trimmed(top = ClockTrimTop, bottom = ClockTrimBottom),
+            modifier = Modifier.padding(top = 16.dp)
+                .toSaverClock(toSaver, Type.Clock.fontSize, 0.dp, drift)
+                .capBox(Type.Clock.fontSize),
         )
         Weather.now?.takeIf { AerialSettings.showWeather }?.let { w ->
             if (weather == null) {
-                ShelfWeather(w, secondary, shadow, Color.White, aside)
+                ShelfWeather(w, shadow, dim, Color.White, aside)
             } else Pressable(
                 onClick = weather.onClick,
                 focusRequester = weather.focusRequester,
@@ -458,8 +663,8 @@ fun ShelfClock(
                 Box(Modifier.focusHalo(state.focused)) {
                     ShelfWeather(
                         w,
-                        if (state.focused) Palette.OnFocus.copy(alpha = 0.72f) else secondary,
                         shadow,
+                        if (state.focused) Palette.OnFocus.copy(alpha = 0.72f) else dim,
                         if (state.focused) Palette.OnFocus else Color.White,
                     )
                 }
@@ -468,16 +673,28 @@ fun ShelfClock(
     }
 }
 
-/** The weather under the large clock: the condition, the city it is for (issue #59), today's range. */
+/** The weather under the large clock, one line like the ones above it: the temperature and, dimmer,
+ *  the condition, the city it is for (issue #59) and today's range. */
 @Composable
-private fun ShelfWeather(w: WeatherNow, secondary: Color, shadow: Shadow, main: Color, modifier: Modifier = Modifier) {
-    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
-        GlyphIcon(glyphFor(w), main, 22.dp, Modifier.padding(end = 8.dp))
-        BasicText("${w.celsius}°", style = Type.Title.copy(color = main, shadow = shadow))
-        val place = Weather.place?.takeIf { it.length <= 12 }
-        val range = if (w.high != null && w.low != null) stringResource(R.string.weather_high_low, w.high, w.low) else null
-        val detail = listOfNotNull(place, stringResource(conditionName(w.kind)), range).joinToString("  ·  ")
-        BasicText(detail, style = Type.Headline.copy(color = secondary, shadow = shadow), modifier = Modifier.padding(start = 12.dp))
+private fun ShelfWeather(
+    w: WeatherNow,
+    shadow: Shadow,
+    detail: Color,
+    main: Color,
+    modifier: Modifier = Modifier,
+) {
+    val place = Weather.place?.takeIf { it.length <= 12 }
+    val range = if (w.high != null && w.low != null) stringResource(R.string.weather_high_low, w.high, w.low) else null
+    val text = listOfNotNull(place, stringResource(conditionName(w.kind)), range).joinToString(" · ")
+    Row(modifier.padding(top = 18.dp).capBox(Type.ClockDetail.fontSize), verticalAlignment = Alignment.CenterVertically) {
+        GlyphIcon(glyphFor(w), main, 18.dp, Modifier.padding(end = 7.dp))
+        BasicText(
+            buildAnnotatedString {
+                append("${w.celsius}°")
+                withStyle(SpanStyle(color = detail, fontWeight = FontWeight.W500)) { append("  $text") }
+            },
+            style = Type.ClockDetail.copy(shadow = shadow),
+        )
     }
 }
 
@@ -515,8 +732,23 @@ private fun Modifier.focusHalo(focused: Boolean): Modifier = if (!focused) this 
     )
 }
 
+/**
+ * How far the clock has wandered with the screensaver ([saverDrift]), held once it ends: the time
+ * goes back from where it was, the wander shrinking with the rest of the way ([toSaverClock]).
+ * Dropped at once on waking, the time jumped up to 24 dp in the first frame of its way back.
+ */
+@Composable
+private fun heldDrift(saving: Boolean, now: LocalDateTime): DpOffset {
+    var held by remember { mutableStateOf(DpOffset.Zero) }
+    if (saving) held = saverDrift(now)
+    return held
+}
+
 /** Inter's cap top below the top of a line of natural height, as a share of the font size. */
 private const val CAP_TOP = 0.242f
+
+/** Inter's cap height (and its digits' height), as a share of the font size. */
+private const val CAP_HEIGHT = 0.727f
 
 /**
  * Carries Home's time to where the screensaver shows it, top right and at its size, as [progress]
@@ -543,21 +775,21 @@ private fun Modifier.toSaverClock(progress: () -> Float, fontSize: TextUnit, cap
             translationY = p * (targetCapTop - s * capTop.toPx() - box.top + drift.y.toPx())
             // The screensaver shows no time: Home's goes as the screensaver comes.
             if (!AerialSettings.screensaverClock) alpha = 1f - p
+            // Its shadow lies outside the capBox: an offscreen buffer would cut it as it fades.
+            compositingStrategy = CompositingStrategy.ModulateAlpha
         }
 }
 
 /**
- * The clock's line box reaches well past its digits (31dp above, 32dp below, measured on the
- * Xiaomi). Trimmed so the date sits 14dp over the digits and the weather 18dp under them.
+ * Lays a line of text out as just its capitals' height, from their top to the baseline, drawn where
+ * it was: so a line's box is the ink a reader sees, and lines line up by their tops and baselines.
+ * Descenders and accents hang outside the box.
  */
-private val ClockTrimTop = 17.dp
-private val ClockTrimBottom = 14.dp
-
-/** Lays the content out [top] and [bottom] shorter than it measures, drawn where it was. */
-private fun Modifier.trimmed(top: Dp, bottom: Dp) = layout { measurable, constraints ->
+private fun Modifier.capBox(fontSize: TextUnit) = layout { measurable, constraints ->
     val p = measurable.measure(constraints)
-    val t = top.roundToPx()
-    layout(p.width, (p.height - t - bottom.roundToPx()).coerceAtLeast(0)) { p.place(0, -t) }
+    val baseline = p[FirstBaseline].takeIf { it != AlignmentLine.Unspecified } ?: p.height
+    val top = (baseline - fontSize.toPx() * CAP_HEIGHT).roundToInt().coerceAtLeast(0)
+    layout(p.width, baseline - top) { p.place(0, -top) }
 }
 
 private fun conditionName(kind: WeatherKind): Int = when (kind) {
@@ -583,16 +815,20 @@ fun CornerClock(
     /** The weather in this line as a control; null keeps it plain text. */
     weather: WeatherControls? = null,
 ) {
-    val drift = if (saving) saverDrift(now) else DpOffset.Zero
+    val drift = heldDrift(saving, now)
     val dim = Color.White.copy(alpha = 0.92f)
     val shadow = Shadow(Color.Black.copy(alpha = 0.5f), blurRadius = 8f)
-    val aside = Modifier.graphicsLayer { alpha = 1f - (toSaver() * 2.5f).coerceIn(0f, 1f) }
     Row(modifier.height(34.dp), verticalAlignment = Alignment.CenterVertically) {
         BasicText(
             timeText(now), style = Type.SmallClock.copy(fontSize = Type.Title.fontSize, color = dim, shadow = shadow),
             modifier = Modifier.toSaverClock(toSaver, Type.Title.fontSize, Type.Title.fontSize.value.dp * CAP_TOP, drift),
         )
         Weather.now?.takeIf { AerialSettings.showWeather }?.let { w ->
+            // No offscreen buffer: it would cut the line's shadow to a box as it fades (#727).
+            val aside = Modifier.graphicsLayer {
+                alpha = 1f - (toSaver() * 2.5f).coerceIn(0f, 1f)
+                compositingStrategy = CompositingStrategy.ModulateAlpha
+            }
             if (weather == null) {
                 GlyphIcon(glyphFor(w), dim, 18.dp, aside.padding(start = 16.dp, end = 6.dp))
                 val place = Weather.place?.takeIf { it.length <= 12 }
@@ -630,6 +866,18 @@ private fun glyphFor(w: WeatherNow): Glyph = when (w.kind) {
     WeatherKind.Rain -> Glyph.CloudRain
     WeatherKind.Snow -> Glyph.CloudSnow
     WeatherKind.Thunder -> Glyph.CloudBolt
+}
+
+/** "VPN" in a thin frame beside the network glyph while a VPN is up, as iOS's status bar has it (issue #809). */
+@Composable
+fun VpnBadge(color: Color, modifier: Modifier = Modifier, fontSize: TextUnit = 10.sp) {
+    BasicText(
+        stringResource(R.string.net_vpn),
+        style = Type.Caption.copy(color = color, fontSize = fontSize, fontWeight = FontWeight.W700, letterSpacing = 0.04.em),
+        modifier = modifier
+            .border(1.2.dp, color, RoundedCornerShape(4.dp))
+            .padding(horizontal = 4.dp, vertical = 1.dp),
+    )
 }
 
 /**
@@ -682,6 +930,7 @@ fun StatusPill(
                 NetKind.Offline -> Glyph.Offline
             }
             GlyphIcon(glyph, fg, 17.dp, level = network.level)
+            if (network.vpn) VpnBadge(fg)
             if (showTime) {
                 BasicText(timeText(now), style = Type.Headline.copy(color = fg))
             }

@@ -47,11 +47,32 @@ Vidda C1S 激光投影（VIDAA_TV，MT9669，Android 9，PR #545）：聚好看�
 - 试过无效：`settings put system settings_startup_source_custom_pkg_key app.orchard.tv`、`cmd notification` 重绑、在默认应用里选 Aerial。
 - 结果：开机先到聚好看，按一次 HOME 进 Aerial（改了上面的属性之后）。
 
-## 信号源（还没做）
+## 信号源（较新固件）
 
 - 固件不走 Android 的 TvInput 框架：`dumpsys tv_input` 的 `inputMap`、`mHardwareList` 都是空的，`com.hisense.tv.inputs` 和 `com.jamdeo.tv.livetv` 都没有 `TvInputService`（#84）。
 - `am start-foreground-service -a com.hisense.tv.start_inputs -n com.hisense.tv.inputs/com.hisense.tv.InputsUIService` 能弹出海信原生的信号源面板（`AllInputsSheet`）。必须用前台服务：普通 `startService` 会被后台启动限制挡住。
 - 计划：`TvInputManager` 取不到输入、且这个服务存在时，控制中心的「信号源」改为打开这个面板。拿不到单个 HDMI，所以不能把 HDMI 加到主屏幕，也不能开机切信号源。
+
+## H55E9A 的 HDMI（Android 8 / bigfish）
+
+2026-10-24，海信 H55E9A（系统型号 `VIDAA_TV`，设备 `Hi3751v811`，Android 8.0.0 / SDK 26，固件 `03.02.60.02`，Aerial 1.41 standard）：
+
+- HDMI 3 已接设备，但标准 `tv_input` 的输入和硬件列表都是空的，也没有 `hdmi_control` 服务。新版海信的 `com.hisense.tv.inputs` 没装，旧的 `com.jamdeo.action.START_INPUT_SOURCE` 也解析不到 Activity。
+- 原生接口是 `com.jamdeo.tv.TvManager.getInstance().getSourceManager(context)`，通过异步绑定 `com.jamdeo.tv.service/.SourceService` 提供数据。`getInputSources()` 实测返回 `[257, 513, 1281, 1025, 2561, 1282, 2562, 1283]`；`getInputSourceName(1283)` 为 `HDMI3`，`getConectedSourcesArray()` 为 `[1283]`。
+- `HisenseSources` 只在原生服务存在且可访问时启用，从设备报告的列表和名字中提取 HDMI，过滤 LiveTV、OnDemand 等虚拟源，不按型号写死端口数量。端口列表首次可能尚未就绪，只在工作线程短时等待；不在主线程阻塞。
+- 切换使用发给 `com.hisense.tv.tiletransition` 的 `com.jamdeo.tv.policy.SILO_SWITCH_EVENT` 广播，整数 extra 为 `silo_input_src_id`。普通权限的临时诊断包发送 `1283` 后，前台变为 `com.jamdeo.tv.livetv/.LiveTvActivity`，原生当前源从 `2562` 变为 `1283`，户主确认看到 HDMI 3 的设备画面。单独启动 LiveTvActivity 不能代替选择端口。
+- 验证范围：临时诊断包内包含实际编译出的 `HisenseSources`，新进程首次读取耗时 118 ms，列出 HDMI 1–3，只有 HDMI 3 为已连接；同一份代码发送切换广播成功。原生接口首次切换时户主确认设备画面正常。临时包和设备上的临时文件已删除。完整 Aerial 的信号源页、固定磁贴和开机输入尚未上机验证，当前机器没有与已装版本匹配的签名密钥。没有覆盖 Aerial 或清除其数据。
+
+## VPN 下的网络类型（H55E9A）
+
+2026-10-27，H55E9A（Android 8.0.0 / SDK 26，固件 `03.02.60.02`）验证 #435 的检测修复：
+
+- 使用独立包名、没有 HOME 和守护服务的临时 release 诊断包，直接编译当前 `SystemProbe.network()` 和 `GlyphIcon`，执行 `cmd package compile -m speed -f` 后测试；不是重写一份检测逻辑。
+- Wi-Fi 连接、VPN 关闭时返回 `Wifi`；开启现有 VPN 客户端后，应用的默认网络只报告 `TRANSPORT_VPN`，另一个物理网络报告 Wi-Fi 且 `isConnected=true`，检测仍返回 `Wifi`，名称可读、信号强度正常，截图显示 Wi-Fi 图标。
+- VPN 已开启时结束诊断进程再冷启动，首次读取及默认网络回调同样返回 `Wifi`；关闭 VPN 后恢复为 Wi-Fi 默认网络，结果不变。未使用网络的 `VALIDATED` 能力判断连接类型。
+- 79 个单元测试通过，其中 16 个网络测试覆盖断开的候选网卡、双连接顺序、VPN 继承的 transport、未知 SSID 和原有兜底行为。有线及双物理连接没有真机条件，仅做自动化验证。
+- **验证边界**：电视原有 Aerial 1.50 与本机签名不同，没有覆盖安装或卸载原桌面，所以完整首页、控制中心和 Activity 生命周期仍需使用匹配签名的完整包回归。此次只确认实际检测代码及原有图标在诊断包中的行为。临时包和电视上的测试文件已清理，VPN 恢复关闭，未修改订阅、节点、路由配置或户主数据。
+- standard / guard release 构建通过；全量 `lintStandardRelease` 仍有 22 个非本次网络文件的错误（包括 `UhdCanvas` 的 API 兼容性、Media3 opt-in 等），未在此次修复中顺带修改。
 
 ## 还原
 

@@ -61,6 +61,7 @@ import androidx.compose.ui.graphics.asAndroidPath
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.GraphicsLayerScope
@@ -95,6 +96,7 @@ import app.orchard.tv.ui.components.baked
 import app.orchard.tv.ui.components.frozen
 import app.orchard.tv.ui.components.smoothMask
 import app.orchard.tv.ui.components.smoothRectPath
+import app.orchard.tv.system.DiagLog
 import app.orchard.tv.ui.theme.LocalReducedMotion
 import app.orchard.tv.ui.theme.Motion
 import app.orchard.tv.ui.theme.Type
@@ -165,6 +167,8 @@ fun AppTile(
     val focusManager = LocalFocusManager.current
 
     var focused by remember { mutableStateOf(false) }
+    // Once per tile: a focused one drawn from its artwork before its face was made (issue #654).
+    val rawLogged = remember { booleanArrayOf(false) }
     var pressed by remember { mutableStateOf(false) }
     var bounds by remember { mutableStateOf<Rect?>(null) }
     var longPressJob by remember { mutableStateOf<Job?>(null) }
@@ -437,7 +441,15 @@ fun AppTile(
                     scale(size.width / pw, size.height / ph, pivot = Offset.Zero) {
                         val made = face(pw, ph)
                         if (made != null) drawImage(made)
-                        else drawImage(art.back, dstSize = IntSize(pw, ph), filterQuality = FilterQuality.Medium)
+                        else {
+                            // Cut to the outline here too, not only by the layer: Redmi X50 (MiTV-NSOP0,
+                            // Novatek, Android 9) showed the focused tile square-cornered as Back
+                            // started the screensaver (issue #654). Only until the face is made.
+                            if (!rawLogged[0] && (focused || lift > 0.01f)) { rawLogged[0] = true; DiagLog.i("tile ${app.label} drawn before its face, ${pw}x$ph") }
+                            clipPath(smoothRectPath(Rect(0f, 0f, pw.toFloat(), ph.toFloat()), Corner.toPx() * pw / size.width)) {
+                                drawImage(art.back, dstSize = IntSize(pw, ph), filterQuality = FilterQuality.Medium)
+                            }
+                        }
                         art.fore?.let { fore ->
                             val at = art.foreAt
                             // Parallax: the logo travels further than the plate when the tile leans.
@@ -591,7 +603,7 @@ object TileFaces {
      * Sizes worked out exactly as AppTile's: a face of another size is simply made there.
      */
     suspend fun prepare(arts: List<TileArt>, screenW: Int, density: Float, focused: Boolean = false) = coroutineScope {
-        val tileW = restTileWidth((screenW / density).dp).value * density
+        val tileW = restTileWidth((screenW / density).dp, AerialSettings.homeColumns).value * density
         val tileH = tileW * 9f / 16f
         val w = tileW.roundToInt()
         val h = tileH.roundToInt()
@@ -599,7 +611,13 @@ object TileFaces {
         val fh = if (focused) focusedPx(tileH) else h
         val radius = Corner.value * density * fw / w
         val rim = 0.5f * density * fw / w
-        if (!focused) restKey = (w.toLong() shl 32) or h.toLong()
+        if (!focused) {
+            val key = (w.toLong() shl 32) or h.toLong()
+            // Another number of apps a row: the faces at the old size go, focused ones too.
+            val resized = restKey != 0L && restKey != key
+            restKey = key
+            if (resized) trimMemory()
+        }
         val todo = arts.distinctBy { System.identityHashCode(it.back) }.filter { ready(it.back, fw, fh) == null }
         if (todo.isEmpty()) return@coroutineScope
         // Only for the faces at rest: the focused ones are made ahead of need, and a tile focused

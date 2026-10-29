@@ -20,6 +20,8 @@ import app.orchard.tv.guard.HomeGuardService
 import app.orchard.tv.settings.AerialSettings
 import app.orchard.tv.wallpaper.PhoneServer
 import app.orchard.tv.wallpaper.Wallpapers
+import org.json.JSONArray
+import org.json.JSONObject
 
 /**
  * What a maintainer without the reporter's TV needs to adapt Aerial to it, as Markdown to paste
@@ -119,8 +121,8 @@ object Diagnostics {
         appendLine("Effects     ${AerialSettings.effects.key}, lite=${AerialSettings.lite}; ${DeviceClass.describe(context)}")
         appendLine("Compiled    ${compiled(context)}")
         appendLine("Frames      ${FrameStats.summary()}")
-        appendLine("Settings    focus=${AerialSettings.focusStyle.key} one_row=${AerialSettings.oneRowHome} peek=${AerialSettings.peekNextRow} names=${AerialSettings.showAllNames} boot_source=${AerialSettings.bootSource != null} boot_app=${AerialSettings.bootApp}")
-        appendLine("            wallpaper=${app.orchard.tv.wallpaper.Wallpapers.selectedId.substringBefore('/')} always_moves=${AerialSettings.wallpaperAlwaysMoves} weather=${AerialSettings.showWeather} icon_library=${AerialSettings.iconLibrary} saver_clock=${AerialSettings.screensaverClock}")
+        appendLine("Settings    focus=${AerialSettings.focusStyle.key} one_row=${AerialSettings.oneRowHome} columns=${AerialSettings.homeColumns} peek=${AerialSettings.peekNextRow} names=${AerialSettings.showAllNames} boot_source=${AerialSettings.bootSource != null} boot_app=${AerialSettings.bootApp}")
+        appendLine("            wallpaper=${app.orchard.tv.wallpaper.Wallpapers.selectedId.substringBefore('/')} always_moves=${AerialSettings.wallpaperAlwaysMoves} quality=${AerialSettings.aerialQuality.key} weather=${AerialSettings.showWeather} saver_clock=${AerialSettings.screensaverClock}")
         appendLine("```")
 
         appendLine()
@@ -135,8 +137,19 @@ object Diagnostics {
         appendLine("```")
         inputs(context).forEach { appendLine(it) }
         SystemProbe.sources(context).forEach { s ->
-            appendLine("  shown: ${s.label} [${s.kind}] connected=${s.connected} -> ${s.intent.component?.flattenToShortString() ?: s.intent.data}")
+            appendLine("  shown: ${s.label} [${s.kind}] connected=${s.connected} -> ${s.intent.component?.flattenToShortString() ?: s.intent.data}" +
+                (s.xiaomiInput?.let { " input=$it" } ?: "") + " id=${s.id}")
         }
+        appendLine("```")
+
+        // What a maintainer copies into devices.json, as it is on this TV.
+        appendLine()
+        appendLine("**Device profile** (${DeviceProfile.origin(context)})")
+        appendLine("```json")
+        appendLine(JSONObject().put("models", JSONArray(listOf(Build.MODEL))).apply {
+            val profile = DeviceProfile.current(context).toJson()
+            profile.keys().forEach { put(it, profile.get(it)) }
+        }.toString())
         appendLine("```")
 
         appendLine()

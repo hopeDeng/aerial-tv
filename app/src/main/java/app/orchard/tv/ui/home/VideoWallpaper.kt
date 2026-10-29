@@ -39,8 +39,8 @@ import kotlinx.coroutines.withContext
 
 /**
  * The owner's own videos behind Home (issues #410, #583), sent from the phone page as for the video
- * screensaver: silent, one after another, filling the screen. They move when the aerial wallpaper
- * would (LiveWallpaper): on a still top row, or all the time when set to keep moving. A key that
+ * screensaver: silent, filling the screen, one after another or just the one chosen on a loop (#762). They move when the aerial wallpaper
+ * would (LiveWallpaper): on a still shelf, or all the time when set to keep moving. A key that
  * stops them leaves the frame they stopped on as the wallpaper's picture, read off the video plane
  * where the TV allows it and otherwise decoded from the file, which is on the TV.
  */
@@ -70,10 +70,11 @@ fun VideoWallpaper(
         player?.release()
         player = null
         showing = false
+        Wallpapers.dropFilmFrost()
     }
 
     suspend fun open(): ExoPlayer? {
-        val films = withContext(Dispatchers.IO) { ScreensaverVideos.all(context) }
+        val films = withContext(Dispatchers.IO) { Wallpapers.videoFilms() }
         if (films.isEmpty()) return null
         // Where the picture on screen came from, so moving again does not cut to another place.
         val spot = Wallpapers.videoSpot()
@@ -114,10 +115,18 @@ fun VideoWallpaper(
         }
     }
 
+    // The plate's glass over the moving video, where PixelCopy reads it. Not from the file: an
+    // owner's video may be 4K HEVC, and a second decoder beside the player's may not be there.
+    LaunchedEffect(play, showing) {
+        if (!play || !showing) return@LaunchedEffect
+        sampleGlass({ player }, canTake = { copyGlassPossible }) { surface?.let { copyGlass(it) } }
+    }
+
     LaunchedEffect(play) {
         if (play) {
             val p = player ?: open()?.also { player = it } ?: return@LaunchedEffect
             DiagLog.i("video wallpaper starts (${p.currentMediaItem?.mediaId} at ${p.currentPosition} ms, idle $idle)")
+            Wallpapers.dropFilmFrost()
             if (p.playbackState == Player.STATE_IDLE) p.prepare()
             p.playWhenReady = true
             snapshotFlow { showing }.first { it }

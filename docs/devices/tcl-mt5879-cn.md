@@ -43,7 +43,7 @@ TCL 手机 App 有一个「把手机里的 APK 推到电视」的功能。电视
 - 同一个 versionCode 也可以覆盖安装。
 - 其他指令（发 Intent、截图、模拟按键、应用列表）和加密握手见 [../tcast-protocol.md](../tcast-protocol.md)。
 
-**方法二：当贝**（多屏互动不在或 6553 端口不通时，`install.sh` 会自动回退到这条）
+**方法二：当贝**（多屏互动不在或 6553 端口不通时，`install.sh` 会自动回退到这条；只用电视上已经装着的当贝，不要为此去装当贝或别的应用商店）
 1. `adb push app-guard-release.apk /sdcard/Download/Aerial.apk`，然后触发媒体扫描（`content call --uri content://media --method scan_volume --arg external_primary`）。
 2. 打开当贝市场的安装包管理：`am start -n com.dangbeimarket/.ui.apkmanager.ApkManagerActivity`。
 3. 选中 Aerial →「安装应用」→（首次安装会提示「应用未被认证」，选「继续」）→ 系统安装器的「安装」。升级时只有最后一步。
@@ -100,6 +100,7 @@ TCL 手机 App 有一个「把手机里的 APK 推到电视」的功能。电视
 - 手动测试：`adb shell am start -n com.android.systemui/.Somnambulator`。
 - 1.14 及以前，按键结束屏保时 Aerial 会崩溃：Android 11 起屏保跑在 Activity 里，窗口先被移除（生命周期变成 DESTROYED），然后才调用 `onDreamingStopped`，往回设成 CREATED 会抛异常。崩溃后无障碍服务处于「已启用但没绑定」，守护失效，按 HOME 就进了 TCL 桌面。1.15 修复了崩溃，并在复活时也检查一次「已启用但没绑定」。
 - 遥控器按一下可能到达两次（户主反馈：从屏保按「下」唤醒后焦点跟着进了 App 列表，小米蓝牙遥控器没有），唤醒后 400ms 内的按键都当作唤醒（2026-10-23）。
+- 系统 dream 里，第一帧之后才加进窗口的 SurfaceView 一直拿不到 surface（没有 `surfaceCreated`，SurfaceFlinger 里也没有它的层），影片解码到 ExoPlayer 的占位 surface 上，屏幕全黑（#609，1.49–1.53 的「视频」屏保）。放影片的 view 要在第一帧就组合出来，数据之后再给（1.54 `VideoSaver`）。
 - 1.42：Aerial 的 Dream 是系统屏保时，主页按返回和主页计时到点都通过 `Somnambulator` 启动这个 Dream，不再另起主页里的屏保。以前两套并存：返回键起的是主页屏保（接着放壁纸那段 4K SDR），2 分钟后被系统 Dream（杜比视界）顶掉，`FLAG_KEEP_SCREEN_ON` 挡不住。实测返回键起 Dream，解码器是 `OMX.MS.DOLBY_VISION.DVHE.STN.Decoder`（2026-10-24）。
 - 1.42：只有一个 4K 解码器。主页航拍壁纸（4K HEVC）在播时起 Dream，Dream 的杜比视界 `DECODING_FAILED`，屏保降成 HEVC 且整个进程都降着（户主看到的「按返回只是默认格式」）。换窗口起 Dream 即使 4K 也会黑一下。现在壁纸和屏保都是航拍时不起 Dream，在主页里由壁纸的播放器接着放；`FLAG_KEEP_SCREEN_ON` 能挡住 TCL 的 2 分钟系统屏保（实测 2 分 40 秒没出来），主页计时提前到 1 分 45 秒。别的情况起 Dream 前、Dream attach 时都先让主页壁纸放开解码器（2026-10-24）。
 - 1.42：「从屏保按一下下键焦点连跳好几行」。关 Dream 时杜比视界解码器释放会卡住主线程，这一下的重复键 2.7 秒后才到主页，过了 400ms 的唤醒窗口。现在唤醒 Dream 的那个键整次按键（重复和松开）都由主页吞掉。注意 Dream 失焦时 Android 会给它补一个**被取消的** UP，不能把它当成松开。`input keyevent --longpress DPAD_DOWN` 复现、修复后焦点留在第一排（2026-10-24）。
