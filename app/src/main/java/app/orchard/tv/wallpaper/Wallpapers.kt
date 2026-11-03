@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Log
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
@@ -17,6 +18,7 @@ import app.orchard.tv.BuildConfig
 import app.orchard.tv.guard.GuardSetup
 import app.orchard.tv.settings.AerialSettings
 import app.orchard.tv.system.DiagLog
+import app.orchard.tv.ui.home.fileFramesJam
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -78,6 +80,9 @@ object Wallpapers {
     private const val TAG = "AerialWallpaper"
     const val LATEST_DAILY = "daily:latest"
     private const val DAILY_RETRY_MS = 30 * 60 * 1000L
+    /** A video's poster (#1158): sharp enough for its card, small to keep (about 60 KB). */
+    private const val POSTER_W = 960
+    private const val POSTER_H = 540
     const val AUTO = "auto"
     const val ROTATE_PHOTOS = "photos:rotate"
     const val LIVE = "aerial:live"
@@ -167,6 +172,17 @@ object Wallpapers {
      * panels sample it.
      */
     var frosted by mutableStateOf<ImageBitmap?>(null); private set
+
+    /**
+     * Whether the moving wallpaper's frames cannot be had for its glass on this TV: PixelCopy reads
+     * the film too slowly to use and its file is not read (TCL MT5879), or the file's frames stuck
+     * since the TV started (LiveWallpaper). Then the top row's plate is the smoke alone over the
+     * film and panels are one solid colour, rather than the frosted frame of minutes before.
+     */
+    var filmGlassless by mutableStateOf(false)
+
+    /** Goes up when a moving wallpaper's picture changes, so its card in Personalize is made again. */
+    var pictureVersion by mutableIntStateOf(0); private set
 
     private var backdropJob: Job? = null
     private var started = false
@@ -284,19 +300,52 @@ object Wallpapers {
         // Until a film has stopped on a frame, the first built-in stands in.
         WallpaperKind.Live -> liveFrame.takeIf { it.exists() }?.let { Images.decodeCover(it, w, h) }
             ?: Gradients.render(Gradients.presets.first(), w, h)
-        // Until one of its films has stopped on a frame, the first film's opening frame.
-        WallpaperKind.Video -> videoFrame.takeIf { videoFrameIsOf(wp.id) }?.let { Images.decodeCover(it, w, h) }
-            ?: firstVideoFrame(wp.id, w, h) ?: Gradients.render(Gradients.presets.first(), w, h)
+        WallpaperKind.Video -> videoPicture(wp.id, w, h) ?: Gradients.render(Gradients.presets.first(), w, h)
         WallpaperKind.Source -> Gradients.byKey(SOURCE_PICTURE)?.let { Gradients.render(it, w, h) }
     }
 
+    /** The frame one of [id]'s films last stopped on, else the first film's poster or opening frame. */
+    private fun videoPicture(id: String, w: Int, h: Int): Bitmap? =
+        videoFrame.takeIf { videoFrameIsOf(id) }?.let { Images.decodeCover(it, w, h) } ?: firstVideoFrame(id, w, h)
+
+    /** A film's own picture for its card, kept beside it, so it goes when the film is deleted. */
+    private fun posterOf(film: ScreensaverVideo) = File(film.file.parentFile, "poster.jpg")
+
+    /** The poster kept for the owner's video [film], if one was; never read from the film itself. */
+    fun videoPoster(film: String, w: Int, h: Int): Bitmap? =
+        videoFilms(VIDEOS).firstOrNull { it.id == film }?.let(::posterOf)?.takeIf { it.exists() }?.let { Images.decodeCover(it, w, h) }
+
+    private fun keepPoster(film: ScreensaverVideo, frame: Bitmap) {
+        val poster = posterOf(film)
+        if (poster.exists()) return
+        val part = File(poster.path + ".part")
+        runCatching {
+            part.outputStream().use { Images.cover(frame, POSTER_W, POSTER_H).compress(Bitmap.CompressFormat.JPEG, 85, it) }
+            check(part.renameTo(poster))
+        }.onFailure { part.delete(); Log.w(TAG, "could not keep a video's poster", it) }
+    }
+
+    /**
+     * The first film's poster, else its opening frame, kept as the poster once read. The read gave
+     * nothing at times on TCL MT9655 (issue #1158, 4K films, perhaps while one played behind Home),
+     * and the card then showed the first built-in picture until Aerial restarted. Not read where
+     * the media server would jam on the file (TCL's extractor, TCL MT5879; issue #1188).
+     */
     private fun firstVideoFrame(id: String, w: Int, h: Int): Bitmap? {
         val film = videoFilms(id).firstOrNull() ?: return null
+        val poster = posterOf(film)
+        if (w <= POSTER_W && poster.exists()) Images.decodeCover(poster, w, h)?.let { return it }
+        if (filmGlassless || fileFramesJam(app)) return null
         val mmr = android.media.MediaMetadataRetriever()
         return try {
             mmr.setDataSource(film.file.path)
-            mmr.getFrameAtTime(0)?.let { Images.cover(it, w, h) }
-        } catch (_: Exception) { null } finally { runCatching { mmr.release() } }
+            val frame = mmr.getFrameAtTime(0) ?: return null.also { DiagLog.i("video poster: no frame of ${film.id}") }
+            keepPoster(film, frame)
+            Images.cover(frame, w, h)
+        } catch (e: Exception) {
+            DiagLog.i("video poster: ${film.id} not read (${e.javaClass.simpleName})")
+            null
+        } finally { runCatching { mmr.release() } }
     }
 
     /** Drops the thumbnails (about 330 KB each); the picker makes them again when it opens. */
@@ -305,9 +354,16 @@ object Wallpapers {
     /** A 16:9 thumbnail for pickers and the phone page. Call off the main thread. */
     fun thumbnail(id: String): Bitmap? {
         synchronized(thumbs) { thumbs[id] }?.let { return it }
+        // A frame kept meanwhile (useLiveFrame) makes this one old: shown, not kept.
+        val version = pictureVersion
         val wp = (if (id == LATEST_DAILY || id == ROTATE_PHOTOS) resolve(id) else items.firstOrNull { it.id == id }) ?: return null
-        val b = if (wp.kind == WallpaperKind.Auto) Gradients.render(Gradients.autoThumb, 384, 216) else picture(wp, 384, 216)
-        if (b != null) synchronized(thumbs) { thumbs[id] = b }
+        val b = when (wp.kind) {
+            WallpaperKind.Auto -> Gradients.render(Gradients.autoThumb, 384, 216)
+            // Not kept while no frame of the film can be had: the next look tries again (issue #1158).
+            WallpaperKind.Video -> videoPicture(id, 384, 216) ?: return Gradients.render(Gradients.presets.first(), 384, 216)
+            else -> picture(wp, 384, 216)
+        }
+        if (b != null) synchronized(thumbs) { if (version == pictureVersion) thumbs[id] = b }
         return b
     }
 
@@ -329,7 +385,9 @@ object Wallpapers {
                 // Frosted from the picture before the home shading: the glass sits low on the
                 // screen, where the shading is darkest, and would read as a grey slab.
                 val frost = picture?.let(Images::frost)
-                picture?.let(Images::shadeForHome) to frost
+                // A film's picture is its frame as it was, as the film is not shaded (HomeBackground).
+                if (wp?.kind == WallpaperKind.Live || wp?.kind == WallpaperKind.Video) picture to frost
+                else picture?.let(Images::shadeForHome) to frost
             }
             backdrop = bmp?.asImageBitmap()
             frosted = frost?.asImageBitmap()
@@ -355,7 +413,9 @@ object Wallpapers {
             WallpaperKind.Video -> if (videoFrameIsOf(wp.id)) videoFrame.lastModified() else 0L
             else -> 0L
         }
-        return "${wp.id}|$stamp|${screenW}x$screenH|${BuildConfig.VERSION_CODE}"
+        // "clear": a film's picture baked unshaded, not one kept from when it was shaded.
+        val film = if (wp.kind == WallpaperKind.Live || wp.kind == WallpaperKind.Video) "|clear" else ""
+        return "${wp.id}|$stamp|${screenW}x$screenH|${BuildConfig.VERSION_CODE}$film"
     }
 
     /**
@@ -412,27 +472,40 @@ object Wallpapers {
     }
 
     /**
-     * The frame a moving wallpaper film stopped on becomes the wallpaper's picture: shaded, frosted
+     * The frame a moving wallpaper film stopped on becomes the wallpaper's picture: frosted
      * and kept for the next start. Returns once Home has it. [frame] is screen-sized and is used up.
      * It was [atMs] into [film], where the film picks up when it next moves ([liveSpot]).
      */
+    /**
+     * [frame] shows as the picture at once, before [useLiveFrame] has kept and frosted it: the
+     * aerial film let go into an app shows its last frame rather than black (LiveWallpaper).
+     */
+    fun showLiveFrame(frame: Bitmap) {
+        if (!moves()) return
+        backdropJob?.cancel()
+        backdrop = frame.asImageBitmap()
+    }
+
     suspend fun useLiveFrame(frame: Bitmap, film: String, atMs: Long) {
         if (!moves()) return
         val id = selectedId
         backdropJob?.cancel()
         val key = if (isVideo(id)) "video" else "live"
+        if (!isVideo(id)) leftHere = null
         prefs.edit { putString("${key}_film", film).putLong("${key}_at", atMs).remove("${key}_left_film").remove("${key}_left_at") }
         val (bmp, frost) = withContext(Dispatchers.Default) {
             runCatching { (if (isVideo(id)) videoFrame else liveFrame).outputStream().use { frame.compress(Bitmap.CompressFormat.JPEG, 90, it) } }
                 .onFailure { Log.w(TAG, "could not keep the film's frame", it) }
-            // Frosted before shading, which draws on the frame itself.
-            val frost = Images.frost(frame)
-            Images.shadeForHome(frame) to frost
+            // The film's own card keeps a picture when another film is chosen.
+            if (isVideo(id)) videoFilms(VIDEOS).firstOrNull { it.id == film }?.let { keepPoster(it, frame) }
+            // Not shaded, as the film is not (HomeBackground).
+            Images.frost(frame).let { frost -> frame to frost }
         }
         // The frame is both the film's own card and the card that plays them all in turn.
         synchronized(thumbs) { thumbs.remove(id); if (isVideo(id)) { thumbs.remove(VIDEOS); thumbs.remove(VIDEO_PREFIX + film) } }
         backdrop = bmp.asImageBitmap()
         frosted = frost.asImageBitmap()
+        pictureVersion++
         resolve(id)?.let { saveBaked(bakedKey(it), bmp, frost) }
     }
 
@@ -451,28 +524,38 @@ object Wallpapers {
 
     /**
      * Where the aerial film was let go with no frame taken, past the picture: Home went behind an
-     * app, or the screensaver played its own films on from the wallpaper's. Without it the film
+     * app, or a screensaver of aerials played on from the wallpaper's film. Without it the film
      * started again from the same picture every time, and the wallpaper never changed (Weibo
      * report, 2026-10-28). Null once the picture has caught up ([useLiveFrame]).
      */
     fun leftLiveSpot(): Pair<String, Long>? {
+        leftHere?.let { return it }
         val film = prefs.getString("live_left_film", null)?.takeIf { it.isNotEmpty() } ?: return null
         return film to prefs.getLong("live_left_at", 0L)
     }
 
-    /** The film starts afresh rather than from where it was let go. */
-    fun forgetLeftLiveSpot() {
-        prefs.edit { remove("live_left_film").remove("live_left_at") }
-    }
+    /**
+     * The newest left spot, ahead of prefs: the screensaver moves it on every second, so Home comes
+     * back on its film and moment, and writes it to prefs only now and then ([leaveLiveFilm]).
+     */
+    @Volatile
+    private var leftHere: Pair<String, Long>? = null
 
-    /** The aerial film was let go at [atMs] into [film] with no frame taken: it goes on from there. */
-    fun leaveLiveFilm(film: String, atMs: Long) {
-        if (selectedId != LIVE) return
+    /**
+     * The aerial film was let go at [atMs] into [film] with no frame taken: it goes on from there.
+     * Not [persist]ed: kept in memory only, for a screensaver that reports where it is every second.
+     */
+    fun leaveLiveFilm(film: String, atMs: Long, persist: Boolean = true) {
+        // Kept whatever the wallpaper: a screensaver of aerials over another one leaves its film
+        // here too, so the aerial wallpaper chosen later begins on it (AerialSet).
+        if (!persist) { leftHere = film to atMs; return }
         val picture = livePictureSpot()
         // Let go where the picture is (stopped there, or never moved): nothing to catch up.
         if (picture != null && picture.first == film && abs(picture.second - atMs) < SAME_SPOT_MS) {
+            leftHere = null
             prefs.edit { remove("live_left_film").remove("live_left_at") }
         } else {
+            leftHere = film to atMs
             prefs.edit { putString("live_left_film", film).putLong("live_left_at", atMs) }
         }
     }

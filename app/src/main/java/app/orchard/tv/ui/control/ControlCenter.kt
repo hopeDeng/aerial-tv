@@ -3,6 +3,14 @@ package app.orchard.tv.ui.control
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.platform.LocalDensity
+import kotlinx.coroutines.launch
 import android.view.KeyEvent as NativeKeyEvent
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
@@ -48,6 +56,7 @@ import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import app.orchard.tv.ui.components.smoothBackground
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -59,6 +68,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -80,6 +91,9 @@ import app.orchard.tv.Overlay
 import app.orchard.tv.R
 import app.orchard.tv.apps.SourceLooks
 import app.orchard.tv.settings.AerialSettings
+import app.orchard.tv.settings.Restricted
+import app.orchard.tv.settings.RestrictedKind
+import app.orchard.tv.ui.home.kidsTimeLine
 import app.orchard.tv.system.HomeStatus
 import app.orchard.tv.system.LaunchFallback
 import app.orchard.tv.system.NetKind
@@ -99,6 +113,8 @@ import app.orchard.tv.ui.theme.GlyphIcon
 import app.orchard.tv.ui.theme.Motion
 import app.orchard.tv.ui.theme.Palette
 import app.orchard.tv.ui.theme.Type
+import app.orchard.tv.update.ReleaseNotes
+import app.orchard.tv.update.SelfCompile
 import app.orchard.tv.update.Updates
 import app.orchard.tv.wallpaper.PhoneServer
 import java.time.LocalDateTime
@@ -117,6 +133,8 @@ fun ControlCenter(
     onClose: () -> Unit,
     /** Draw the closed panel once, nearly transparent, so that its first opening is not its first draw (HomeScreen). */
     warm: Boolean = false,
+    /** Home is on its top row: no tiles under the panel, only the wallpaper (see liquidGlass). */
+    onShelf: Boolean = false,
 ) {
     BackHandler(enabled = visible) {
         when (page) {
@@ -128,6 +146,11 @@ fun ControlCenter(
     }
 
     LaunchedEffect(visible) { if (visible) Updates.checkIfStale(maxAgeMs = Updates.CONTROL_CENTER_MAX_AGE_MS) }
+    // Whether Aerial is the default home, read again each time the panel opens. Recreated after a
+    // standby kill, Aerial kept the "not the default home screen" it read while the firmware was
+    // still waking, and the activity's polling (MainActivity) never ran: Xiaomi MiTV-AZFP0,
+    // Android 9, whose log showed onCreate but no onStart for that instance (issue #892).
+    LaunchedEffect(visible) { if (visible) vm.refreshPanel() }
 
     AnimatedVisibility(
         visible = visible,
@@ -159,7 +182,7 @@ fun ControlCenter(
                 Modifier
                     .width(300.dp)
                     .consumeTaps()
-                    .liquidGlass(24.dp)
+                    .liquidGlass(24.dp, seeThroughFilm = onShelf)
                     .padding(16.dp),
             ) {
                 AnimatedContent(
@@ -177,7 +200,7 @@ fun ControlCenter(
                     // Closing sets the page back to Main while the panel fades out; that page must
                     // not take focus from the tile Home has just put it back on.
                     when (p) {
-                        CcPage.Main -> MainPage(vm, now, visible, onOpen)
+                        CcPage.Main -> if (Restricted.active) KidsPage(vm, now, visible) else MainPage(vm, now, visible, onOpen)
                         CcPage.Inputs -> InputsPage(vm, visible, onOpen)
                         CcPage.InputSettings -> InputSettingsPage(vm, visible)
                         CcPage.Update -> UpdatePage(vm, visible)
@@ -189,10 +212,49 @@ fun ControlCenter(
     }
 }
 
+/**
+ * Control Center in Kids and Elders mode (Restricted): the time, volume and brightness, the day's
+ * time left, and leaving the mode with the PIN. No inputs, network, settings or Personalize.
+ */
+@Composable
+private fun KidsPage(vm: HomeViewModel, now: LocalDateTime, takeFocus: Boolean) {
+    val first = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        if (!takeFocus) return@LaunchedEffect
+        withFrameNanos { }
+        runCatching { first.requestFocus() }
+    }
+    Column {
+        BasicText(timeText(now), style = Type.SmallClock.copy(fontSize = Type.LargeTitle.fontSize * 1.05f))
+        BasicText(dateText(now), style = Type.Callout)
+        kidsTimeLine()?.let {
+            Spacer(Modifier.height(6.dp))
+            BasicText(it, style = Type.Callout.copy(color = Palette.SecondaryLabel))
+        }
+        Spacer(Modifier.height(12.dp))
+        VolumeRow(vm, first)
+        Spacer(Modifier.height(6.dp))
+        BrightnessRow(vm)
+        Spacer(Modifier.height(6.dp))
+        MenuRow(
+            Glyph.Shield,
+            stringResource(if (Restricted.kind == RestrictedKind.Kids) R.string.cc_kids_leave else R.string.cc_elders_leave),
+            focusRequester = first,
+            onClick = vm::leaveKidsMode,
+        )
+    }
+}
+
 @Composable
 private fun MainPage(vm: HomeViewModel, now: LocalDateTime, takeFocus: Boolean, onOpen: (android.content.Intent) -> Unit) {
     val context = LocalContext.current
     val first = remember { FocusRequester() }
+    val networkFocus = remember { FocusRequester() }
+    val settingsFocus = remember { FocusRequester() }
+    // The buttons share one row above a panel-wide slider, so focus searching up from it has three
+    // equally near choices and takes the middle one, Network, whichever button Down came from
+    // (75A7D). Remember that button and send Up back to it.
+    var cameFrom by remember { mutableStateOf(first) }
     // Firmwares that list their inputs late (see HomeViewModel.refreshSources): look again while
     // the page is open and still empty. One provider or TvInputManager query every 3 s.
     LaunchedEffect(Unit) {
@@ -234,7 +296,11 @@ private fun MainPage(vm: HomeViewModel, now: LocalDateTime, takeFocus: Boolean, 
 
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            RoundButton(Glyph.Input, stringResource(R.string.cc_inputs), focusRequester = first) {
+            RoundButton(
+                Glyph.Input, stringResource(R.string.cc_inputs),
+                focusRequester = first,
+                modifier = Modifier.onFocusChanged { if (it.isFocused) cameFrom = first },
+            ) {
                 // TCL lists no inputs to Android; its own input panel is the next best thing.
                 vm.overlay = if (vm.sources.isEmpty() && SystemProbe.openInputPicker(context)) Overlay.None
                 else Overlay.ControlCenter(CcPage.Inputs)
@@ -242,6 +308,8 @@ private fun MainPage(vm: HomeViewModel, now: LocalDateTime, takeFocus: Boolean, 
             RoundButton(
                 when (vm.network.kind) { NetKind.Ethernet -> Glyph.Ethernet; NetKind.Offline -> Glyph.Offline; else -> Glyph.Wifi },
                 stringResource(R.string.cc_network),
+                focusRequester = networkFocus,
+                modifier = Modifier.onFocusChanged { if (it.isFocused) cameFrom = networkFocus },
             ) {
                 vm.whenUnlocked {
                     val pages = SystemProbe.networkSettingsIntents(context, ethernet = vm.network.kind == NetKind.Ethernet)
@@ -249,15 +317,32 @@ private fun MainPage(vm: HomeViewModel, now: LocalDateTime, takeFocus: Boolean, 
                     onOpen(pages.first())
                 }
             }
-            RoundButton(Glyph.Gear, stringResource(R.string.cc_settings)) { vm.whenUnlocked { onOpen(SystemProbe.settingsIntent(context)) } }
+            RoundButton(
+                Glyph.Gear, stringResource(R.string.cc_settings),
+                focusRequester = settingsFocus,
+                modifier = Modifier.onFocusChanged { if (it.isFocused) cameFrom = settingsFocus },
+            ) {
+                vm.whenUnlocked {
+                    LaunchFallback.arm(SystemProbe.settingsFallbacks(context))
+                    onOpen(SystemProbe.settingsIntent(context))
+                }
+            }
         }
 
         Spacer(Modifier.height(12.dp))
-        VolumeRow(vm)
+        VolumeRow(vm, cameFrom)
         Spacer(Modifier.height(6.dp))
         BrightnessRow(vm)
 
         Spacer(Modifier.height(6.dp))
+        // A parent left Kids and Elders mode: one press back into it, no PIN.
+        if (Restricted.enabled && Restricted.suspended) {
+            MenuRow(
+                Glyph.Kids,
+                stringResource(if (Restricted.kind == RestrictedKind.Kids) R.string.cc_kids_back else R.string.cc_elders_back),
+                onClick = { Restricted.start(); vm.overlay = Overlay.None },
+            )
+        }
         // How Home looks (wallpaper, screensaver, focus style, hidden apps, weather) lives in one place.
         MenuRow(
             Glyph.Photo,
@@ -279,6 +364,13 @@ private fun MainPage(vm: HomeViewModel, now: LocalDateTime, takeFocus: Boolean, 
                 stringResource(R.string.cc_update_available, latest),
                 onClick = { vm.overlay = Overlay.ControlCenter(CcPage.Update) },
             )
+        }
+
+        // Android 9 to 11, Aerial running uncompiled: reinstalling itself has the system compile it,
+        // which needs the owner's confirmation there (SelfCompile; 12+ does it by itself).
+        LaunchedEffect(Unit) { SelfCompile.recheck(context) }
+        if (SelfCompile.offered) {
+            MenuRow(Glyph.Download, stringResource(R.string.cc_self_compile), onClick = { SelfCompile.run(context, auto = false) })
         }
 
         // Installed from the APK alone: how to finish, on the TV or with a computer.
@@ -337,6 +429,7 @@ private fun UpdatePage(vm: HomeViewModel, takeFocus: Boolean) {
                 Glyph.Download,
                 when (state) {
                     is Updates.Install.Downloading -> stringResource(R.string.cc_update_downloading, (state.fraction * 100).toInt())
+                    Updates.Install.Waiting -> stringResource(R.string.cc_update_waiting)
                     else -> stringResource(R.string.cc_update_install)
                 },
                 focusRequester = first,
@@ -346,6 +439,7 @@ private fun UpdatePage(vm: HomeViewModel, takeFocus: Boolean) {
         Column(Modifier.padding(horizontal = 14.dp)) {
             Spacer(Modifier.height(10.dp))
             val status = when (val state = Updates.install) {
+                Updates.Install.Waiting -> stringResource(R.string.cc_update_waiting)
                 Updates.Install.Opened -> stringResource(R.string.cc_update_opened)
                 Updates.Install.NeedsPermission -> stringResource(R.string.cc_update_permission)
                 Updates.Install.NeedsStoragePermission -> stringResource(R.string.cc_update_storage_permission)
@@ -360,9 +454,17 @@ private fun UpdatePage(vm: HomeViewModel, takeFocus: Boolean) {
                 else -> stringResource(R.string.cc_update_current, Updates.current)
             }
             BasicText(status, style = Type.Caption)
+        }
+        // Read when the page opens too: the check that found the version may have missed them.
+        LaunchedEffect(Unit) { if (Updates.notes.isEmpty()) Updates.loadNotes() }
+        Updates.notes.takeIf { it.isNotEmpty() }?.let { notes ->
+            Spacer(Modifier.height(10.dp))
+            UpdateNotes(notes)
+        }
+        Column(Modifier.padding(horizontal = 14.dp)) {
             Spacer(Modifier.height(16.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(104.dp).clip(RoundedCornerShape(12.dp)).background(Color.White).padding(8.dp)) {
+                Box(Modifier.size(104.dp).smoothBackground(Color.White, 12.dp).padding(8.dp)) {
                     qr?.let { Image(it, contentDescription = null, contentScale = ContentScale.Fit, filterQuality = FilterQuality.None, modifier = Modifier.fillMaxSize()) }
                 }
                 Spacer(Modifier.width(16.dp))
@@ -370,6 +472,73 @@ private fun UpdatePage(vm: HomeViewModel, takeFocus: Boolean) {
                     BasicText(stringResource(if (canInstall) R.string.cc_update_scan_else else R.string.cc_update_scan), style = Type.Body)
                     Spacer(Modifier.height(6.dp))
                     BasicText(stringResource(R.string.cc_update_keeps), style = Type.Caption)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * What the update brings, release by release. The lines are not controls: focused (Down from the
+ * install button), Up and Down scroll it a few lines at a time, and past either end focus moves on
+ * as from any row. The panel has room for about ten lines under the install button and above the
+ * QR code; a bar on the right shows how much more there is.
+ */
+@Composable
+private fun UpdateNotes(notes: List<ReleaseNotes>) {
+    val scroll = rememberScrollState()
+    val scope = rememberCoroutineScope()
+    var focused by remember { mutableStateOf(false) }
+    val step = with(LocalDensity.current) { 64.dp.toPx() }
+    val glow by animateFloatAsState(if (focused) 1f else 0f, tween(140, easing = Motion.EaseOut), label = "notes-focus")
+    val scrollable = scroll.maxValue > 0
+    Box(Modifier.fillMaxWidth()) {
+        Box(Modifier.matchParentSize().graphicsLayer { alpha = glow }.smoothBackground(Palette.Fill, 12.dp))
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(max = 164.dp)
+                .onFocusChanged { focused = it.isFocused }
+                .onKeyEvent { e ->
+                    val down = when (e.nativeKeyEvent.keyCode) {
+                        NativeKeyEvent.KEYCODE_DPAD_DOWN -> true
+                        NativeKeyEvent.KEYCODE_DPAD_UP -> false
+                        else -> return@onKeyEvent false
+                    }
+                    if (if (down) scroll.value >= scroll.maxValue else scroll.value <= 0) return@onKeyEvent false
+                    if (e.type == KeyEventType.KeyDown) {
+                        Sounds.step()
+                        scope.launch { scroll.animateScrollBy(if (down) step else -step, spring(dampingRatio = 1f, stiffness = 500f)) }
+                    }
+                    true
+                }
+                .focusProperties { canFocus = scrollable }
+                .focusable()
+                .drawWithContent {
+                    drawContent()
+                    if (scroll.maxValue <= 0) return@drawWithContent
+                    // The scroll bar, inside the right padding.
+                    val track = size.height - 16.dp.toPx()
+                    val thumb = (track * size.height / (size.height + scroll.maxValue)).coerceAtLeast(12.dp.toPx())
+                    val top = 8.dp.toPx() + (track - thumb) * scroll.value / scroll.maxValue
+                    drawRoundRect(
+                        if (focused) Palette.SecondaryLabel else Palette.TertiaryLabel,
+                        topLeft = Offset(size.width - 6.dp.toPx(), top),
+                        size = Size(2.5.dp.toPx(), thumb),
+                        cornerRadius = CornerRadius(1.25.dp.toPx()),
+                    )
+                }
+                .verticalScroll(scroll)
+                .padding(start = 14.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
+        ) {
+            notes.forEachIndexed { i, release ->
+                if (i > 0) Spacer(Modifier.height(10.dp))
+                BasicText(stringResource(R.string.cc_update_notes, release.version), style = Type.Callout.copy(color = Palette.Label))
+                release.changes.forEach { line ->
+                    Row(Modifier.padding(top = 4.dp)) {
+                        BasicText("•", style = Type.Caption, modifier = Modifier.width(10.dp))
+                        BasicText(line, style = Type.Caption, modifier = Modifier.weight(1f))
+                    }
                 }
             }
         }
@@ -407,7 +576,7 @@ private fun SetupPage(vm: HomeViewModel, takeFocus: Boolean, onOpen: (android.co
         home?.let { MenuRow(Glyph.Check, stringResource(R.string.cc_setup_home), onClick = { vm.whenUnlocked { onOpen(it) } }, trailing = "›") }
         revival?.let { MenuRow(Glyph.Moon, stringResource(R.string.cc_setup_revival), onClick = { vm.whenUnlocked { onOpen(it) } }, trailing = stringResource(R.string.cc_setup_revival_where) + " ›") }
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 14.dp)) {
-            Box(Modifier.size(104.dp).clip(RoundedCornerShape(12.dp)).background(Color.White).padding(8.dp)) {
+            Box(Modifier.size(104.dp).smoothBackground(Color.White, 12.dp).padding(8.dp)) {
                 qr?.let { Image(it, contentDescription = null, contentScale = ContentScale.Fit, filterQuality = FilterQuality.None, modifier = Modifier.fillMaxSize()) }
             }
             Spacer(Modifier.width(16.dp))
@@ -422,8 +591,14 @@ private fun SetupPage(vm: HomeViewModel, takeFocus: Boolean, onOpen: (android.co
 
 /** A round Control Center button: frosted at rest, white when focused. */
 @Composable
-private fun RoundButton(glyph: Glyph, label: String, focusRequester: FocusRequester? = null, onClick: () -> Unit) {
-    Pressable(onClick = onClick, focusRequester = focusRequester, focusedScale = 1.1f) { state ->
+private fun RoundButton(
+    glyph: Glyph,
+    label: String,
+    focusRequester: FocusRequester? = null,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    Pressable(onClick = onClick, modifier = modifier, focusRequester = focusRequester, focusedScale = 1.1f) { state ->
         val bg by animateColorAsState(if (state.focused) Palette.Focus else Palette.Fill, tween(140, easing = Motion.EaseOut), label = "round-bg")
         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(64.dp)) {
             Box(Modifier.size(48.dp).clip(CircleShape).background(bg), contentAlignment = Alignment.Center) {
@@ -450,6 +625,7 @@ private fun SliderRow(
     value: String,
     steps: Int,
     onStep: (Int) -> Unit,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     // Each step ticks, as focus does; a step past either end bumps instead. Read through state:
@@ -464,7 +640,7 @@ private fun SliderRow(
     Pressable(
         onClick = onClick,
         focusedScale = 1.03f,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         onKey = { e ->
             val code = e.nativeKeyEvent.keyCode
             if (code != NativeKeyEvent.KEYCODE_DPAD_LEFT && code != NativeKeyEvent.KEYCODE_DPAD_RIGHT) return@Pressable false
@@ -490,7 +666,7 @@ private fun SliderRow(
                         while (travelled <= -pitch) { step(-1); travelled += pitch }
                     }
                 }
-                .clip(RoundedCornerShape(14.dp)).background(bg).height(40.dp).padding(horizontal = 14.dp),
+                .smoothBackground(bg, 14.dp).height(40.dp).padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -510,7 +686,7 @@ private fun SliderRow(
 }
 
 @Composable
-private fun VolumeRow(vm: HomeViewModel) {
+private fun VolumeRow(vm: HomeViewModel, returnTo: FocusRequester) {
     val volume = vm.volume
     SliderRow(
         glyph = if (volume.muted) Glyph.SpeakerMuted else Glyph.Speaker,
@@ -518,6 +694,7 @@ private fun VolumeRow(vm: HomeViewModel) {
         value = if (volume.muted) stringResource(R.string.cc_muted) else volume.level.toString(),
         steps = volume.max,
         onStep = vm::adjustVolume,
+        modifier = Modifier.focusProperties { up = returnTo },
         onClick = vm::toggleMute,
     )
 }
@@ -538,7 +715,7 @@ private fun BrightnessRow(vm: HomeViewModel) {
     val xgimi = remember { SystemProbe.xgimiBrightnessLevel() != null }
     LaunchedEffect(xgimi) {
         if (!xgimi) return@LaunchedEffect
-        vm.refreshBrightness()
+        vm.discoverBrightnessBoost()
         while (isActive) {
             delay(700)
             vm.refreshBrightness()
@@ -554,7 +731,7 @@ private fun BrightnessRow(vm: HomeViewModel) {
         SliderRow(
             glyph = Glyph.Sun,
             level = level,
-            value = Math.round(level * 100).toString(),
+            value = if (vm.brightnessBoost == true) "10+" else Math.round(level * 100).toString(),
             // Brightness.adjust moves 5% a step, and stops at 1%; XGIMI steps its own levels.
             steps = if (xgimi) SystemProbe.xgimiBrightnessMax else 20,
             onStep = vm::adjustBrightness,
@@ -676,7 +853,7 @@ private fun ChoiceRow(text: String, selected: Boolean, focusRequester: FocusRequ
         val bg by animateColorAsState(if (state.focused) Palette.Focus else Color.Transparent, tween(140, easing = Motion.EaseOut), label = "choice-bg")
         val fg = if (state.focused) Palette.OnFocus else Palette.Label
         Row(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(bg).height(44.dp).padding(horizontal = 14.dp),
+            Modifier.fillMaxWidth().smoothBackground(bg, 12.dp).height(44.dp).padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             BasicText(text, style = Type.Body.copy(color = fg), modifier = Modifier.weight(1f))

@@ -34,6 +34,8 @@ abstract class Control(context: Context) : View(context) {
     protected val bg = Paint(Paint.ANTI_ALIAS_FLAG)
     protected val bitmapPaint = Paint(Paint.FILTER_BITMAP_FLAG)
     protected val rect = RectF()
+    /** Plates and borders with continuous corners (Shapes.Tint). */
+    protected val tint = Shapes.Tint()
 
     protected fun baseline(p: Paint, centerY: Float) = centerY - (p.descent() + p.ascent()) / 2
     protected fun fit(text: String, p: TextPaint, room: Float) = TextUtils.ellipsize(text, p, room, TextUtils.TruncateAt.END).toString()
@@ -49,11 +51,7 @@ class MenuRow(context: Context, private val glyph: Glyph, var text: String, var 
 
     override fun onDraw(canvas: Canvas) {
         val w = width.toFloat(); val h = height.toFloat()
-        if (focusedLook) {
-            bg.color = Ui.FOCUS
-            rect.set(0f, 0f, w, h)
-            canvas.drawRoundRect(rect, Ui.px(12f), Ui.px(12f), bg)
-        }
+        if (focusedLook) tint.draw(canvas, Shapes.mask(width, height, Ui.px(12f)), 0f, 0f, Ui.FOCUS)
         val fg = when {
             focusedLook -> if (destructive) 0xFFD70015.toInt() else Ui.ON_FOCUS
             destructive -> Ui.RED
@@ -129,9 +127,7 @@ class SliderRow(
 
     override fun onDraw(canvas: Canvas) {
         val w = width.toFloat(); val h = height.toFloat()
-        bg.color = if (focusedLook) Ui.FOCUS else Ui.FILL
-        rect.set(0f, 0f, w, h)
-        canvas.drawRoundRect(rect, Ui.px(14f), Ui.px(14f), bg)
+        tint.draw(canvas, Shapes.mask(width, height, Ui.px(14f)), 0f, 0f, if (focusedLook) Ui.FOCUS else Ui.FILL)
         val fg = if (focusedLook) Ui.ON_FOCUS else Ui.WHITE
         val (v, max) = read()
         val fraction = if (max > 0) v / max.toFloat() else 0f
@@ -203,9 +199,7 @@ class KeyButton(context: Context, private val text: String?, private val glyph: 
 
     override fun onDraw(canvas: Canvas) {
         val ww = width.toFloat(); val h = height.toFloat()
-        bg.color = if (focusedLook) Ui.FOCUS else Ui.FILL
-        rect.set(0f, 0f, ww, h)
-        canvas.drawRoundRect(rect, Ui.px(12f), Ui.px(12f), bg)
+        tint.draw(canvas, Shapes.mask(width, height, Ui.px(12f)), 0f, 0f, if (focusedLook) Ui.FOCUS else Ui.FILL)
         val fg = if (focusedLook) Ui.ON_FOCUS else Ui.WHITE
         if (glyph != null) {
             val g = Ui.pxi(18f)
@@ -224,7 +218,6 @@ class Thumb(context: Context, private val name: String, private val chosen: () -
     var picture: Bitmap? = null
         set(v) { field = v; invalidate() }
     private val text = TextPaint(Ui.text(11f, 500, Ui.SECONDARY))
-    private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) = setMeasuredDimension(Ui.pxi(168f), Ui.pxi(94f + 6f + 16f))
 
@@ -243,19 +236,15 @@ class Thumb(context: Context, private val name: String, private val chosen: () -
             // Made with its corners already cut (Personalize's thumbnails).
             canvas.drawBitmap(pic, null, rect, bitmapPaint)
         } else {
-            bg.color = Ui.FILL
-            canvas.drawRoundRect(rect, r, r, bg)
+            tint.draw(canvas, Shapes.mask(width, Ui.pxi(94f), r), 0f, 0f, Ui.FILL)
         }
         val on = chosen()
-        stroke.strokeWidth = Ui.px(if (focusedLook || on) 3f else 1f)
-        stroke.color = when {
+        val border = when {
             focusedLook -> Ui.FOCUS
             on -> 0x8CF5F5F7.toInt()
             else -> Ui.HAIRLINE
         }
-        val half = stroke.strokeWidth / 2
-        rect.set(half, half, w - half, ph - half)
-        canvas.drawRoundRect(rect, r - half, r - half, stroke)
+        tint.draw(canvas, Shapes.band(width, Ui.pxi(94f), r, Ui.px(if (focusedLook || on) 3f else 1f)), 0f, 0f, border)
         if (on) {
             val d = Ui.px(22f)
             val cx = w - Ui.px(7f) - d / 2
@@ -299,6 +288,8 @@ open class Sheet(context: Context, protected val close: () -> Unit) : FrameLayou
     private val rows = ArrayList<MutableList<Control>>()
     private var r = 0
     private var c = 0
+    /** The column focus last left each row from; see move. */
+    private val leftAt = HashMap<Int, Int>()
     private val press = Press()
     /** The content that scrolls, and the height it scrolls within; null for a sheet that fits. */
     var scroller: View? = null
@@ -320,6 +311,7 @@ open class Sheet(context: Context, protected val close: () -> Unit) : FrameLayou
     protected fun clearRows() {
         focused?.focusedLook = false
         rows.clear()
+        leftAt.clear()
         r = 0; c = 0
     }
 
@@ -382,11 +374,15 @@ open class Sheet(context: Context, protected val close: () -> Unit) : FrameLayou
         } else {
             val nr = r + dr
             if (nr !in rows.indices) return
-            // The control in the next row nearest the focused one's middle.
+            // The control in the next row nearest the focused one's middle. From a row-wide one,
+            // the one focus left that row from: Control Center's volume slider sits under three
+            // buttons, and Up always found the middle one, whichever Down came from (#860).
             val x = centerX(from)
             from.focusedLook = false
+            leftAt[r] = c
             r = nr
-            c = rows[r].indices.minByOrNull { kotlin.math.abs(centerX(rows[r][it]) - x) } ?: 0
+            val back = leftAt[r]?.takeIf { rows[r - dr].size == 1 && it in rows[r].indices }
+            c = back ?: rows[r].indices.minByOrNull { kotlin.math.abs(centerX(rows[r][it]) - x) } ?: 0
         }
         focused?.focusedLook = true
         focused?.let { onFocusMoved(it) }

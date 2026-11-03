@@ -53,6 +53,7 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
@@ -74,8 +75,11 @@ import app.orchard.tv.HomeViewModel
 import app.orchard.tv.Overlay
 import app.orchard.tv.R
 import app.orchard.tv.settings.AerialSettings
+import app.orchard.tv.settings.Restricted
+import app.orchard.tv.guard.KidsWatch
 import app.orchard.tv.apps.AppEntry
 import app.orchard.tv.ui.control.ControlCenter
+import app.orchard.tv.ui.wallpaper.SheetCovers
 import app.orchard.tv.ui.wallpaper.WallpaperSheet
 import app.orchard.tv.tv.TvController
 import app.orchard.tv.ui.tv.TvWindow
@@ -89,8 +93,10 @@ import app.orchard.tv.ui.components.liquidGlass
 import app.orchard.tv.ui.theme.LocalReducedMotion
 import app.orchard.tv.ui.theme.Motion
 import app.orchard.tv.ui.theme.Type
+import app.orchard.tv.ui.components.diagLayer
 import androidx.compose.runtime.snapshotFlow
 import app.orchard.tv.system.DiagLog
+import app.orchard.tv.system.LaunchFallback
 import app.orchard.tv.system.SystemProbe
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -302,7 +308,9 @@ fun HomeScreen(
     val focusedIndex = apps.indexOfFirst { it.key == focusedKey }
     val columns = AerialSettings.homeColumns
     val focusedRow = if (pillFocused || focusedIndex < 0) 0 else focusedIndex / columns
-    val gridEnabled = overlay == Overlay.None
+    // Kids mode's lock covers Home: nothing under it takes focus.
+    val kidsLock = if (Restricted.active) Restricted.lock else null
+    val gridEnabled = overlay == Overlay.None && kidsLock == null
     // The live slot and the weather line are Home's own controls: they take focus only while nothing
     // is over Home. The slot's own panels are the exception, since live TV keeps playing under them.
     val onHome = gridEnabled && moving == null && !vm.screensaverVisible && !tv.channelListOpen &&
@@ -542,6 +550,7 @@ fun HomeScreen(
                 if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (e.nativeKeyEvent.keyCode) {
                     NativeKeyEvent.KEYCODE_MENU -> {
+                        if (kidsLock != null) return@onPreviewKeyEvent true
                         // On an app tile, Menu opens that app's menu (AppTile): remotes whose held
                         // OK never reads as held had no other way to it (issue #28). Control
                         // Center stays one press up, on the status pill, where Menu still opens it.
@@ -551,7 +560,21 @@ fun HomeScreen(
                         vm.overlay = if (overlay is Overlay.ControlCenter) Overlay.None else Overlay.ControlCenter()
                         true
                     }
+                    NativeKeyEvent.KEYCODE_SETTINGS -> {
+                        // The remote's gear key reaches Home where no firmware answers it: a stock
+                        // Android TV launcher opens the settings on it, and with Aerial as Home it did
+                        // nothing (Riviera RLED-GLT32TPQ10, MediaTek, Android 14, issue #1190).
+                        // Kids and Elders mode keeps the settings shut, as Control Center does.
+                        if (kidsLock != null || Restricted.active) return@onPreviewKeyEvent true
+                        vm.whenUnlocked {
+                            LaunchFallback.arm(SystemProbe.settingsFallbacks(appContext))
+                            onOpen(SystemProbe.settingsIntent(appContext))
+                        }
+                        true
+                    }
                     NativeKeyEvent.KEYCODE_TV_INPUT -> {
+                        // Kids and Elders mode switches only to the inputs it shows, as tiles.
+                        if (Restricted.active && !firmwareInputPanel) return@onPreviewKeyEvent true
                         // TCL's firmware opens its own input panel on this key; answering it here
                         // as well drew both panels at once (TCL MT5879, PR #334).
                         if (firmwareInputPanel) return@onPreviewKeyEvent false
@@ -606,6 +629,8 @@ fun HomeScreen(
         val openFolder = (overlay as? Overlay.Folder)?.id ?: (overlay as? Overlay.AppMenu)?.inFolder
         val folderOpen = overlay is Overlay.HiddenApps || openFolder != null
         val ccOpen = overlay is Overlay.ControlCenter
+        var sheetIn by remember { mutableStateOf(false) }
+        var sheetWarm by remember { mutableStateOf(false) }
         // Folders open on Home frosted, as on tvOS; Control Center keeps Home sharp, dimmed.
         val backdropFrost by animateFloatAsState(
             if (folderOpen) 1f else 0f,
@@ -648,29 +673,33 @@ fun HomeScreen(
         // drawn cuts no hole in the window, so the paused film showed as the window's black
         // (Xiaomi MiTV-MFTR0, the aerial wallpaper under Control Center).
         // Live TV holds a decoder too: while the window plays, the wallpaper's film stays on its frame.
-        val filmMoves = vm.resumed && overlay == Overlay.None && !vm.screensaverVisible && !pastShelf &&
+        val filmMoves = vm.filmFront && overlay == Overlay.None && !vm.screensaverVisible && !pastShelf &&
             !inGrid && moving == null && !tv.active
         val sourceInput = Wallpapers.sourceInput
         when {
             Wallpapers.selectedId == Wallpapers.LIVE -> LiveWallpaper(
                 moving = filmMoves,
-                keep = vm.resumed && (!vm.screensaverVisible || filmSaver) && !tv.active,
+                keep = vm.filmFront && (!vm.screensaverVisible || filmSaver) && !tv.active,
                 cover = filmCover,
-                hold = filmSaver && vm.resumed,
-                // Control Center and Personalize leave Home sharp (dimmed, or above the sheet):
-                // the paused film stays. Swapped for its picture there, the background jumped
-                // (another plane and processing; a key frame a second off where the exact
-                // frame did not decode, Xiaomi MiTV-MFTR0 and TCL MT5879).
-                standIn = overlay == Overlay.None || overlay is Overlay.ControlCenter || overlay is Overlay.Wallpaper,
+                hold = filmSaver && vm.filmFront,
+                // Control Center, Personalize and an app's menu on Home leave Home sharp (dimmed,
+                // above the sheet, beside the menu): the paused film stays. Swapped for its picture
+                // there, the background jumped (another plane and processing; a key frame a second
+                // off where the exact frame did not decode, Xiaomi MiTV-MFTR0 and TCL MT5879); the
+                // menu flashed so as it opened (the owner, MFTR0). In a folder Home is frosted.
+                standIn = overlay == Overlay.None || overlay is Overlay.ControlCenter || overlay is Overlay.Wallpaper ||
+                    (overlay is Overlay.AppMenu && overlay.inFolder == null),
+                panel = overlay != Overlay.None,
                 otherFormatSaver = vm.screensaverVisible && !filmSaver && Wallpapers.screensaver == ScreensaverMode.Aerial &&
                     !AerialFormats.screensaverCarriesWallpaper(appContext),
+                lastInputAt = { vm.lastInputAt },
                 live = liveFilm,
             )
             // Anew for each choice, so another of the owner's videos does not keep the last one's player.
             Wallpapers.isVideo() -> key(Wallpapers.selectedId) {
                 VideoWallpaper(
                     moving = filmMoves,
-                    keep = vm.resumed && !vm.screensaverVisible && !tv.active,
+                    keep = vm.filmFront && !vm.screensaverVisible && !tv.active,
                     lastInputAt = vm.lastInputAt,
                     cover = filmCover,
                 )
@@ -700,6 +729,9 @@ fun HomeScreen(
                     if (ccOpen && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                         homeLayer.record { this@drawWithContent.drawContent() }
                         drawLayer(homeLayer)
+                    } else if (sheetIn) {
+                        // Under Personalize's settled sheet, only what shows above it.
+                        clipRect(bottom = size.height - SheetCovers.toPx()) { this@drawWithContent.drawContent() }
                     } else drawContent()
                 },
         ) {
@@ -768,6 +800,7 @@ fun HomeScreen(
                         alignEnd = atEnd,
                         weather = weatherControls,
                         modifier = Modifier
+                            .diagLayer("clock")
                             .align(if (atEnd) Alignment.TopEnd else Alignment.TopStart)
                             .padding(horizontal = metrics.margin)
                             .padding(top = metrics.clockY)
@@ -786,6 +819,7 @@ fun HomeScreen(
                         now = now,
                         weather = weatherControls,
                         modifier = Modifier
+                            .diagLayer("clock")
                             .padding(start = metrics.margin, top = 28.dp)
                             .graphicsLayer {
                                 alpha = 1f - (scroll.value / collapsePx * 1.6f).coerceIn(0f, 1f)
@@ -846,13 +880,15 @@ fun HomeScreen(
                                 }
                             },
                             onLongPress = { bounds ->
-                                if (moving == null) {
+                                // Nothing to rearrange in Kids and Elders mode (#1013).
+                                if (moving == null && !Restricted.active) {
                                     focusAfterOverlay = app.key
                                     indexAfterOverlay = index
                                     vm.overlay = Overlay.AppMenu(app.key, bounds ?: Rect.Zero)
                                 }
                             },
                             modifier = Modifier
+                                .diagLayer("tiles")
                                 // Lifted on the shelf with the plate; the clock above stays put.
                                 .offset { slot.value - IntOffset(0, lift.roundToInt()) }
                                 .then(
@@ -904,6 +940,7 @@ fun HomeScreen(
                     now = now,
                     weather = weatherControls,
                     modifier = Modifier
+                        .diagLayer("clock")
                         .padding(end = 14.dp)
                         .graphicsLayer {
                             alpha = 1f - (scroll.value / collapsePx * 1.6f).coerceIn(0f, 1f)
@@ -920,6 +957,7 @@ fun HomeScreen(
                 enabled = gridEnabled && moving == null,
                 focusRequester = pillRequester,
                 modifier = Modifier
+                    .diagLayer("pill")
                     // Down goes back to the top-row tile Up came from, not to the nearest one,
                     // which under the pill is the last of the row (issue #703).
                     .focusProperties {
@@ -999,8 +1037,9 @@ fun HomeScreen(
             )
         }
 
-        // Once per process, while Home is idle: Control Center drawn for a few frames, nearly
-        // transparent, so that its first opening is not its first draw (see ControlCenter).
+        // Once per process, while Home is idle: Control Center, then Personalize, drawn for a few
+        // frames, nearly transparent, so that their first opening is not their first draw (see
+        // ControlCenter, WallpaperSheet).
         var ccWarm by remember { mutableStateOf(false) }
         LaunchedEffect(vm.loaded) {
             if (!vm.loaded || ControlCenterWarmed.done) return@LaunchedEffect
@@ -1013,6 +1052,12 @@ fun HomeScreen(
             ccWarm = true
             repeat(3) { withFrameNanos { } }
             ccWarm = false
+            // A frame apart, so that the two first draws do not land in the same frame.
+            withFrameNanos { }
+            if (vm.overlay != Overlay.None) return@LaunchedEffect
+            sheetWarm = true
+            repeat(3) { withFrameNanos { } }
+            sheetWarm = false
         }
         ControlCenter(
             visible = overlay is Overlay.ControlCenter,
@@ -1022,6 +1067,7 @@ fun HomeScreen(
             onOpen = { vm.overlay = Overlay.None; onOpen(it) },
             onClose = { vm.overlay = Overlay.None },
             warm = ccWarm,
+            onShelf = !pastShelf,
         )
 
         FolderView(
@@ -1100,6 +1146,30 @@ fun HomeScreen(
             onDismiss = { closeMenu() },
         )
 
+        KidsSetupSheet(
+            visible = overlay is Overlay.Kids,
+            candidates = vm.kidsCandidates,
+            onStart = {
+                if (!Restricted.enabled) Restricted.chooseEnabled(true)
+                Restricted.start()
+                vm.overlay = Overlay.None
+                vm.homeResetPending = true
+                KidsWatch.poke()
+            },
+            onDismiss = { vm.overlay = Overlay.Wallpaper },
+        )
+
+        // Locked mid-panel (the day's time ran out with Control Center open): the lock is all there is.
+        LaunchedEffect(kidsLock != null) {
+            if (kidsLock != null && vm.overlay !is Overlay.Pin) vm.overlay = Overlay.None
+        }
+        KidsLockScreen(
+            lock = kidsLock,
+            pinOpen = overlay is Overlay.Pin,
+            onParent = { right -> vm.overlay = Overlay.Pin(PinMode.Verify) { vm.overlay = Overlay.None; right() } },
+            onLeave = { Restricted.suspend(); KidsWatch.poke() },
+        )
+
         HiddenAppsSheet(
             visible = overlay is Overlay.HiddenApps,
             apps = vm.hiddenApps,
@@ -1126,16 +1196,20 @@ fun HomeScreen(
 
         WallpaperSheet(
             visible = overlay is Overlay.Wallpaper,
+            onSettled = { sheetIn = it },
+            warm = sheetWarm,
             onDismiss = { vm.overlay = Overlay.ControlCenter() },
             hiddenCount = vm.hiddenApps.size,
             onHiddenApps = { vm.whenUnlocked { vm.overlay = Overlay.HiddenApps } },
+            onKids = vm::setUpKidsMode,
             onStartScreensaver = {
                 vm.overlay = Overlay.None
                 onStartScreensaver()
             },
             onPin = { on ->
                 if (on) vm.overlay = Overlay.Pin(PinMode.Create) { vm.overlay = Overlay.Wallpaper }
-                else vm.whenUnlocked { AerialSettings.choosePin(null); vm.overlay = Overlay.Wallpaper }
+                // Kids mode cannot be left without a PIN: it goes with it.
+                else vm.whenUnlocked { AerialSettings.choosePin(null); Restricted.chooseEnabled(false); vm.overlay = Overlay.Wallpaper }
             },
         )
 
@@ -1147,7 +1221,7 @@ fun HomeScreen(
             onCancel = { vm.overlay = Overlay.None },
         )
 
-        NoticeBanner(vm.notice, Modifier.align(Alignment.TopCenter).padding(top = 24.dp))
+        NoticeBanner(vm.notice, Modifier.align(Alignment.TopCenter).padding(top = 24.dp), vm.noticeGlyph)
 
         Screensaver(visible = vm.screensaverVisible, apps = apps, now = now, skips = vm.screensaverSkips, carry = when {
                 filmSaver -> SaverCarry.Film(liveFilm)

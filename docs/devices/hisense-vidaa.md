@@ -14,6 +14,7 @@
 | VIDAA_TV（老款） | Android 5.1.1（SDK 22），MStar MSD6A828 | 装得上；没有 `cmd`；每次开机固件把 `accessibility_enabled` 清成 0，直接写 1 会被静默丢弃，先 `pm unhide` 任一个包触发包变更后再写才生效；GlobalPanel 吃掉主页键，只有守护能接管；设置里没有无障碍入口，每次开机都要用电脑恢复 | #285 |
 | VIDAA C1 投影 | Android 9，MT9669 | 没有 role 服务，也没有 `persist.vt.use_home_pkg`；聚好看 HOME priority=50，守护拉起 Aerial 后 2–5 秒系统（uid 1000）又切回聚好看；`SYSTEM_ALERT_WINDOW` 被改回 ignore；暂时接管不了 | #323 |
 | 海信会议室触屏电视、海信投影 | 未说 | 投影打不开 ADB；会议室机只问了能否保留触屏（能，1.20 起支持触屏） | 微博 |
+| VIDAA_TV | Android 9，Amlogic T963（`t5fl`），1080p | 1.72 起应用内升级不弹安装界面：安装会话提交后没有回复也没有确认页（1.71 及以前用 `ACTION_VIEW` 正常）；下个版本起会话 8 秒没回复就退回系统安装器（见 ARCHITECTURE「升级」），已在 1.72–1.74 的要手动升一次 | #1004 |
 
 Vidda C1S 激光投影（VIDAA_TV，MT9669，Android 9，PR #545）：聚好看（`com.jamdeo.tv.vod`）不向第三方无障碍服务发窗口事件，别的 App 的事件照常；`set-home-activity` 写了 preferred 也不生效；用量统计里有聚好看的 `MOVE_TO_FOREGROUND`。1.49 起原桌面里有聚好看就每秒查一次用量统计（要 `GET_USAGE_STATS`，安装命令会给），报告人实测从 B 站按主页键 1–2 秒回到 Aerial。
 
@@ -74,6 +75,50 @@ Vidda C1S 激光投影（VIDAA_TV，MT9669，Android 9，PR #545）：聚好看�
 - **验证边界**：电视原有 Aerial 1.50 与本机签名不同，没有覆盖安装或卸载原桌面，所以完整首页、控制中心和 Activity 生命周期仍需使用匹配签名的完整包回归。此次只确认实际检测代码及原有图标在诊断包中的行为。临时包和电视上的测试文件已清理，VPN 恢复关闭，未修改订阅、节点、路由配置或户主数据。
 - standard / guard release 构建通过；全量 `lintStandardRelease` 仍有 22 个非本次网络文件的错误（包括 `UhdCanvas` 的 API 兼容性、Media3 opt-in 等），未在此次修复中顺带修改。
 
+## 控制中心网络入口（H55E9A，#760）
+
+2026-10-28，在 H55E9A（Android 8.0.0 / SDK 26）确认：`com.android.tv.settings`
+同时包含 Android TV 的 `connectivity.NetworkActivity` 和海信自己的
+`com.hisense.systemsettings.MainActivity`。原来的候选顺序先打开前者；#760 的用户报告
+它的连接页或高级选项崩溃，海信自己的设置页能用。
+
+- 海信入口：`android.settings.WIFI_SETTINGS`，显式组件
+  `com.android.tv.settings/com.hisense.systemsettings.MainActivity`。从 Aerial 上方启动时，
+  截图确认直接弹出海信自己的 Wi-Fi 列表，不需要先在总设置中选择网络。
+- `SystemProbe` 和 Lite 的 `SystemIntents` 仅在该组件存在、启用且导出时优先使用它，
+  不按品牌名或 `VIDAA_TV` 型号判断。其他电视的候选顺序不变；完整版保留原有启动失败和闪退回退机制。
+- 自动化：88 项单元测试通过，新增 7 项覆盖海信优先级、未安装/未导出/禁用时的回退、
+  小米有线/无线优先级、TCL 标准 Wi-Fi action，以及实际启动 action 和通用设置入口不变。
+  standard、guard、Lite release 构建及 Lite lint 通过。
+- 普通应用权限验证：独立包名的 release 诊断包直接编译当前 `SystemProbe`，执行 speed 编译后，
+  系统日志确认由诊断包的普通应用 UID 发起上述显式 Wi-Fi action，海信设置页收到真实遥控器
+  返回键后回到诊断页。测试包及电视上的临时文件已清理，没有改变默认 HOME 或网络配置。
+- 验证边界：本机没有与电视上 Aerial 1.61 匹配的签名密钥，未覆盖安装或卸载原桌面。
+  完整控制中心点击流程、连接/更换 Wi-Fi 和高级选项未验证；#760 的另一台
+  85E5N Pro+（MT9653）以及 Android 4.x 的 Lite 尚未上机验证。
+
+## Android 14 应用内更新无响应（MT9655，#1162）
+
+2026-11-02，报告人提供 VIDAA_TV / MT9655（board `VX5SPRO`，平台属性 `mt5877`），
+Android 14 / SDK 34，固件 `07.02.70.202606170419`：从 1.71 应用内升级到 1.78 时，
+APK 已下载、会话已提交，但数分钟内没有确认页或安装结果，连点会积累多个会话。
+报告人核对了安装权限和签名，`adb install -r` 已成功覆盖到 1.78。
+`ACTION_VIEW` + APK MIME 能解析到系统 `InstallStart`，旧版应用内升级也曾成功。
+
+- 代码缺口：原来只有 SDK < 31 才等待提交后的响应；Android 12+ 可能免确认安装，
+  因此被排除，但该固件不回应时就永远到不了 `ACTION_VIEW` 兜底。
+- 补丁（PR #1167 合入 main，未发版）：Android 12+ 等待 120 秒，9–11 保留 8 秒；确认页仍等 4 秒。
+  合入时又加了一条：安卓 12+ 只有 Aerial 自己是安装来源时才可能免确认安装，adb 装的（报告人这台
+  `installerPackageName = null`）或系统安装器装的，系统一定会问，所以也只等 8 秒（`Updates.mayInstallSilently`）。
+  等待期间防止重复提交，离开桌面不清会话，后台超时延后到回桌面再打开安装器。
+  在后台收到的确认请求也等回桌面才打开，避免把「主页已暂停」误判成确认页未出现。
+  面板区分「等待系统安装」与「已打开安装程序」。没有增加机型硬编码，也不清理历史会话。
+- **尚未在报告人的电视验证**。120 秒不保证涵盖所有正常安装耗时；需回归较慢的免确认安装，
+  以及 `ACTION_VIEW` 覆盖升级后的桌面守护权限。已装 1.78 的用户要先手动装含补丁的版本，
+  才能验证下一次应用内升级；新 APK 中的代码不能修复旧进程当前正在执行的更新流程。
+- 自动化验证：17 个会话回归用例通过（SDK 28/30/31/34），更新模块共 60 项、完整 guardDebug
+  单测 192 项通过；standard / guard release 构建及 lintVital 通过，不代替上述真机验证。
+
 ## 还原
 
 - `tools/restore.sh` 用 `settings global aerial_vt_home_pkg` 里记下的原值还原 `persist.vt.use_home_pkg`。1.15 及以前是手动改的属性，没有记原值：这时如果属性是 `app.orchard.tv` 且装有 `com.jamdeo.tv.vod`，就还原成聚好看（#40 的报告人发现的，2026-10-22 起）。
@@ -92,3 +137,29 @@ Vidda C1S 激光投影（VIDAA_TV，MT9669，Android 9，PR #545）：聚好看�
 
 - 屏保设成 Aerial 的 Dream 后，Aerial 用 Somnambulator 请系统起屏保，系统没有起：Aerial 30 毫秒后又回到前台（#525 的日志）。用了航拍壁纸时，壁纸的播放器已经为屏保让出解码器，于是停住（#533）。
 - 1.48 起：请求后 1.5 秒内 Aerial 仍在前台且有焦点，就改放 Aerial 自己的屏保，这个进程里不再请系统起。没在海信真机上验证。
+
+## 4K 界面和 USB 口（Vidda G7，#896 #875）
+
+- Vidda G7（VIDAA_TV，MT9655，板 VX5SPRO，Android 14，报告人贴的输出，2026-10-29）：`ro.vt.4KUI_ability=2.1`、`ro.vtf.4kui.mtk=1`、`ro.vt.4k_whitelist_support=1`、`2K_4K.Supported=true`、`ro.surface_flinger.max_graphics_width/height=3840/2160`，`wm size` 1920×1080，显示只有 1920×1080@60 一个模式。聚好看前台时 SurfaceFlinger 里它那一层缓冲 1920×1080、`is4kGraphicLayer=false`、DEVICE 合成：自家桌面也不是 4K 送显，4K 界面看来要进 `4k_whitelist` 才开。
+- 同一位报告人的海信（MT9952，Android 14，#875）：`init.mt9952.usb.rc` 在 `sys.usb.config=adb` 时执行 `usb_otg_agent device`，OTG 控制器 `1c7a3e00.usb` 切到设备模式，接在上面的 USB 口不再认设备（2.4G 飞鼠接收器）。开机 `adb_enabled=1`，系统据此把 USB 功能设成 `adb`；`setprop persist.sys.usb.config mtp` 后重启恢复，网络 ADB 靠 `persist.adb.tcp.port=5555` + `persist.service.adb.enable=1` 维持。Aerial 不写 USB 配置，`keep_adb` 只在 `adb_enabled` 变 0 时写回 1。小米 MFTR0 是同样的规则（见 xiaomi-mitv-mftr0.md）。
+
+## 75E8H 的音量条和亮度条（#1025，MT9652 m7642，安卓 9，VIDAA 6.6）
+
+报告人（Agent）实测：没有 `picture_backlight`；`screen_brightness` 写得进去但面板不变；`media volume --stream 3 --set 2` 让 AudioService 的当前值变了，电视实际音量和 `volume_music` 不变，遥控器音量键正常、Aerial 面板的数字会跟着遥控器变。亮度可以在 device profile 里加 `"ignoresScreenBrightness": true`（adapt.md 已补）；音量还要看 `dumpsys audio` 里是不是 fixed volume、走 HDMI/CEC，已问。
+
+1.78 起 VIDAA 的亮度行打开电视设置，但走的是 `ACTION_DISPLAY_SETTINGS`，这台打开的是「互动屏保和校准」。报告人（2026-11-02，抓了按键、界面和日志）确认：
+- 背光值在 `com.android.tv.settings` 的 `PictureManager.getCustomBacklight()`，`screen_brightness` 恒为 127，和面板无关；
+- 真正一步到位的是遥控器设置键（Linux keycode 141）弹出的「常用功能」里的「屏幕亮度」浮层，只认内核层按键，App 和 `input keyevent` 都弹不出；
+- `am start -a android.settings.IMAGE_SETTINGS` 打开图像页，里面有「屏幕亮度设置」；`android.settings.LIGHT_SENSOR` 是智慧光感开关；
+- 音量走海信中间件（`com.jamdeo.tv.service` 的 `JamdeoVolumePanel` → root 进程 `hstvos`），不经过 AudioService。
+
+main 上（未发版）亮度行先试 `android.settings.IMAGE_SETTINGS`（非标准 action，只在固件声明时用），再退回显示设置。没有海信真机验证。
+
+## 待机唤醒后配置接收器又被停用（Vidda 75E5K，MT9653，安卓 11，#1181）
+
+报告人实测：海信「启动管理」在唤醒后约 2 秒把 `ConfigReceiver`、`BootReceiver` 写进 `disabledComponents`，晚于 SCREEN_ON 和 onStart 时的检查，只有通知监听重绑那一次能清掉，而且不是每次唤醒都有。main 上（未发版，995c0e3）每次恢复后 5 秒、15 秒各再查一次。没有海信真机；小米上 shell 停用不了组件，模拟不出来。
+
+## 网络按钮：海信页和原生页（#1095 #826 #760）
+
+1.71 起「网络」先开海信自己的网络页（#760 H55E9A 安卓 8 上原生 `NetworkActivity` 的子页会崩，#826 也要海信的新界面）。海信页里没有代理；#1095 的 VIDAA_TV（MT9603 / mt5873，安卓 11）上原生页 `com.android.tv.settings/.connectivity.NetworkActivity` 能打开、能设代理、不崩。按机型选哪一页属于偏好，留到功能轮次；变通办法是 `adb shell am start -n com.android.tv.settings/.connectivity.NetworkActivity`。
+

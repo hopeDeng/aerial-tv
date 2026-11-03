@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.os.SystemClock
 import android.provider.Settings
 
 /**
@@ -16,7 +17,11 @@ object SystemIntents {
         context,
         Intent("com.xiaomi.mitv.settings.SETTINGS").setComponent(ComponentName("com.xiaomi.mitv.settings", "com.xiaomi.mitv.settings.entry.MainActivity")),
         Intent(Intent.ACTION_MAIN).setComponent(ComponentName("com.haier.tv.menusetting", "com.haier.tv.menusetting.RootActivity")),
+        Intent(Intent.ACTION_MAIN).setComponent(ComponentName("com.konka.tvsettings", "com.konka.settingcenter.settings.view.MainSettingsActivity")),
+        // Hisense VIDAA_TV: its own page before AOSP's, as in the full app (#1085).
+        Intent(Settings.ACTION_SETTINGS).setComponent(ComponentName("com.android.tv.settings", "com.hisense.systemsettings.MainActivity")),
         Intent(Settings.ACTION_SETTINGS),
+        Intent(Intent.ACTION_MAIN).setComponent(ComponentName("com.konka.systemsetting", "com.konka.systemsetting.MainActivity")),
         Intent(Intent.ACTION_MAIN).setComponent(ComponentName("com.tcl.settings", "com.tcl.settings.ui.MainActivity")),
         Intent(Intent.ACTION_MAIN).setComponent(ComponentName("com.pptv.setting", "com.pptv.setting.root.SettingsActivity")),
         Intent(Intent.ACTION_VIEW, Uri.parse("Settings://com.xgimi.misckey.main/mainPage")),
@@ -24,6 +29,7 @@ object SystemIntents {
 
     fun network(context: Context, ethernet: Boolean): Intent = first(
         context,
+        *listOfNotNull(hisenseNetworkSettingsIntent(context)).toTypedArray(),
         *listOfNotNull(Intent("com.xiaomi.mitv.settings.ETHERNET_SETTINGS").setPackage("com.xiaomi.mitv.settings").takeIf { ethernet }).toTypedArray(),
         Intent("com.xiaomi.mitv.settings.WIFI_SETTINGS").setComponent(ComponentName("com.xiaomi.mitv.settings", "com.xiaomi.mitv.settings.wifi.MitvWifiActivity")),
         Intent(Intent.ACTION_MAIN).setComponent(ComponentName("com.android.tv.settings", "com.android.tv.settings.connectivity.NetworkActivity")),
@@ -32,6 +38,47 @@ object SystemIntents {
         Intent(Settings.ACTION_SETTINGS),
         Intent(Intent.ACTION_MAIN).setComponent(ComponentName("com.tcl.settings", "com.tcl.settings.ui.MainActivity")),
     )
+
+    // Same OEM network category as SystemProbe (#760), not the direct Wi-Fi list.
+    // Sidebar focus verified on H55E9A / Android 8; Android 4.x Lite still needs device verification.
+    private fun hisenseNetworkSettingsIntent(context: Context): Intent? {
+        val intent = Intent("android.settings.NETWORK_SETTINGS").setComponent(
+            ComponentName("com.android.tv.settings", "com.hisense.systemsettings.MainActivity"),
+        )
+        val info = runCatching { context.packageManager.resolveActivity(intent, 0)?.activityInfo }.getOrNull()
+        return intent.takeIf { info != null && info.exported && info.enabled && info.applicationInfo.enabled }
+    }
+
+    /**
+     * HDMI 1-3, AV and the antenna through Xiaomi's player, which takes the port as its `input` number: 23-25 for HDMI, the
+     * full app's xiaomiSources. Mi TV 2 (49", Android 4.3) lists no inputs, and its owner opened
+     * them this way from another launcher (issue #1094); Mi TV 2 and 3 on Android 5.1 did the same
+     * in the full app (#599 #309). Not on boxes, which have the player but no HDMI inputs, and
+     * only before Android 5, where no TV lists its inputs: later Mi TV 4 boards number them
+     * otherwise, which the full app knows.
+     * CLEAR_TOP: a player task in the background is otherwise only brought back, its input unchanged.
+     */
+    fun xiaomiInputs(context: Context): List<Pair<String, Intent>> {
+        if (Build.VERSION.SDK_INT >= 21) return emptyList()
+        val player = ComponentName("com.xiaomi.mitv.tvplayer", "com.xiaomi.mitv.tvplayer.ExternalSourceActivity")
+        if (runCatching { context.packageManager.getActivityInfo(player, 0) }.isFailure) return emptyList()
+        val traits = runCatching {
+            Class.forName("android.os.SystemProperties").getMethod("get", String::class.java).invoke(null, "ro.build.characteristics") as String
+        }.getOrNull().orEmpty()
+        if ("stb" in traits || "mbx" in traits) return emptyList()
+        fun play(input: Int) = Intent("com.xiaomi.mitv.tvplayer.EXTSRC_PLAY").setComponent(player)
+            .putExtra("input", input)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        // AV is 2 and the antenna 1, DTMB its own page where the player has it (MiTV2-49, the
+        // owner's list, issue #1094). VGA (0) is left out: not every Mi TV of these years has one,
+        // and nothing tells which.
+        val dtmb = ComponentName("com.xiaomi.mitv.tvplayer", "com.xiaomi.mitv.tvplayer.dtmb.DTMBActivity")
+        val digital = if (runCatching { context.packageManager.getActivityInfo(dtmb, 0) }.isSuccess) {
+            listOf("DTMB" to Intent("com.xiaomi.mitv.tvplayer.DTMB_PLAY").setComponent(dtmb).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP))
+        } else emptyList()
+        return (1..3).map { port -> "HDMI $port" to play(22 + port) } +
+            listOf("AV" to play(2), context.getString(R.string.input_antenna) to play(1)) + digital
+    }
 
     /**
      * The TV's own input panel where Android lists no inputs (every 4.x TV): Hisense's service,
@@ -61,6 +108,17 @@ object SystemIntents {
         if (runCatching { pm.queryBroadcastReceivers(skyMovie, 0) }.getOrNull().orEmpty().any { it.activityInfo.exported }) {
             return runCatching { context.sendBroadcast(skyMovie) }.isSuccess
         }
+        // LeTV eUI's signal source app, back to the input last used (X3-55, Android 5.0.1, the full
+        // app's issues #818 #998); not verified on LeTV's Android 4.x.
+        val letv = ComponentName("com.stv.signalsourcemanager", "com.stv.signalsourcemanager.MainActivity")
+        if (runCatching { pm.getActivityInfo(letv, 0) }.getOrNull()?.exported == true &&
+            runCatching { context.startActivity(Intent(Intent.ACTION_MAIN).setComponent(letv).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }.isSuccess
+        ) return true
+        // Sharp's Foxconn-built MStar source panel (CVTM648, Android 6, the full app's issue #1048).
+        val sharp = ComponentName("com.mstar.tvsetting", "com.foxconn.etvg.inputsource.FxcInputSourceActitvity")
+        if (runCatching { pm.getActivityInfo(sharp, 0) }.getOrNull()?.exported == true &&
+            runCatching { context.startActivity(Intent(Intent.ACTION_MAIN).setComponent(sharp).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }.isSuccess
+        ) return true
         return false
     }
 
@@ -74,6 +132,33 @@ object SystemIntents {
         if (runCatching { context.packageManager.resolveService(konka, 0) }.getOrNull()?.serviceInfo?.exported != true) return false
         return runCatching { context.startService(konka) }.getOrNull() != null
     }
+
+    /**
+     * Xiaomi's settings menu as the popup its settings app shows on a broadcast, for where its
+     * activity closes at once: on Android 6 (Mi TV 4, Mi Box 3S, the full app's issue #834) it only
+     * hosts that popup over PatchWall and finishes over any other Home. Older Xiaomi firmwares are
+     * not verified. Armed when settings open, sent if Home is back within a moment (onResume).
+     */
+    private var settingsOpenedAt = 0L
+
+    fun noteSettingsOpened(intent: Intent) {
+        settingsOpenedAt = if (intent.component?.packageName == XIAOMI_SETTINGS) SystemClock.uptimeMillis() else 0L
+    }
+
+    /** Whether the Xiaomi settings just opened closed at once; asked once, on resume. */
+    fun settingsBounced(context: Context): Boolean {
+        val at = settingsOpenedAt
+        settingsOpenedAt = 0L
+        if (at == 0L || SystemClock.uptimeMillis() - at > 800L) return false
+        val popup = Intent("com.xiaomi.intent.action.show.globalsetting").setPackage(XIAOMI_SETTINGS)
+        return runCatching { context.packageManager.queryBroadcastReceivers(popup, 0) }.getOrNull().orEmpty().any { it.activityInfo.exported }
+    }
+
+    fun showXiaomiSettingsPopup(context: Context) {
+        runCatching { context.sendBroadcast(Intent("com.xiaomi.intent.action.show.globalsetting").setPackage(XIAOMI_SETTINGS)) }
+    }
+
+    private const val XIAOMI_SETTINGS = "com.xiaomi.mitv.settings"
 
     /** Not Intent.resolveActivity: it returns an explicit component unchecked. */
     private fun first(context: Context, vararg intents: Intent): Intent {

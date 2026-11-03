@@ -14,6 +14,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -35,6 +36,7 @@ import app.orchard.tv.wallpaper.Wallpapers
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
@@ -65,6 +67,7 @@ fun VideoWallpaper(
     }
     val play = moving && (idle || AerialSettings.wallpaperAlwaysMoves)
     val keepNow by rememberUpdatedState(keep)
+    val scope = rememberCoroutineScope()
 
     fun release() {
         player?.release()
@@ -96,8 +99,22 @@ fun VideoWallpaper(
                     showing = isPlaying && rendered
                 }
 
+                // Playing them in turn where the glass cannot be read off the video: the picture under
+                // it stayed the first film's, and so did the glass of the plate and Control Center
+                // through every film after it (TCL MT9655, issue #1158). Each film's poster now.
+                override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                    val id = mediaItem?.mediaId ?: return
+                    if (copyGlassPossible || reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) return
+                    scope.launch {
+                        val poster = withContext(Dispatchers.IO) { Wallpapers.videoPoster(id, Wallpapers.screenW, Wallpapers.screenH) } ?: return@launch
+                        Wallpapers.useLiveFrame(poster, id, 0L)
+                    }
+                }
+
                 override fun onPlayerError(error: PlaybackException) {
                     DiagLog.i("video wallpaper failed (${error.errorCodeName})")
+                    // Behind an app or a screensaver the decoder is theirs: no retry.
+                    if (!keepNow) return
                     // One film this TV cannot decode; the others may still play.
                     if (mediaItemCount > 1) {
                         removeMediaItem(currentMediaItemIndex)
@@ -122,7 +139,16 @@ fun VideoWallpaper(
         sampleGlass({ player }, canTake = { copyGlassPossible }) { surface?.let { copyGlass(it) } }
     }
 
-    LaunchedEffect(play) {
+    // Let go as Aerial stops, not at the next frame, which does not come then (rememberStops).
+    val stops = rememberStops {
+        if (player == null) return@rememberStops false
+        DiagLog.i("video wallpaper lets go as Aerial stops")
+        release()
+        scope.launch { cover.snapTo(0f) }
+        true
+    }
+
+    LaunchedEffect(play, stops) {
         if (play) {
             val p = player ?: open()?.also { player = it } ?: return@LaunchedEffect
             DiagLog.i("video wallpaper starts (${p.currentMediaItem?.mediaId} at ${p.currentPosition} ms, idle $idle)")
@@ -145,8 +171,17 @@ fun VideoWallpaper(
                 val at = p.currentPosition
                 val w = surface?.width?.takeIf { it > 0 } ?: Wallpapers.screenW
                 val h = surface?.height?.takeIf { it > 0 } ?: Wallpapers.screenH
+                // Neither on TCL MT9655 at times: then the film's own poster, so the picture and its
+                // glass are at least the film that played, not the one shown before (issue #1158).
+                // Not from the file where reading frames jams the media server (TCL's extractor): on
+                // TCL MT5879 every stop read one, and the decoders failed to start or failed
+                // mid-film after it, each time a stop came before (issue #1188, Aerial's own log).
                 val frame = surface?.let { copyFrame(it) }
-                    ?: film?.let { id -> withContext(Dispatchers.IO) { fileFrame(context, id, at, w, h) } }
+                    ?: film?.let { id ->
+                        withContext(Dispatchers.IO) {
+                            (if (fileFramesJam(context)) null else fileFrame(context, id, at, w, h)) ?: Wallpapers.videoPoster(id, w, h)
+                        }
+                    }
                 if (frame != null && film != null) Wallpapers.useLiveFrame(frame, film, at)
                 cover.animateTo(0f, tween(if (frame != null) 320 else 600, easing = Motion.EaseOut))
             }

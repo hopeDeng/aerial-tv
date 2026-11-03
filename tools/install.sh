@@ -8,10 +8,11 @@
 #   TV=<tv-ip> tools/install.sh lite          # Aerial Lite; chosen by itself on Android 4.0-4.4,
 #                                             # refused on 5.0+ (FORCE_LITE=1 to try it there)
 #
-# The APK comes from the latest release (aerial.qust.me's copy, else GitHub), so only adb is needed
-# (and python3 on TCL TVs).
+# The APK comes from the latest release (aerial.qust.me's copy, else GitHub): needs adb, curl
+# and unzip to check the download (and python3 on TCL TVs).
 #   BUILD=1        build it from this checkout instead (JDK 17 + Android SDK)
 #   APK_FILE=<apk> install this file instead
+#   STAY_CONNECTED=1  stay connected to the TV afterwards (otherwise adb lets go of it at the end)
 #
 # Takeover, gentlest first. Nothing is uninstalled or disabled:
 #   1. Ask Android: HOME role / preferred home activity. Works on stock Android TV and Google TV.
@@ -46,6 +47,12 @@ fi
 
 case "$TV" in *:*) SERIAL="$TV" ;; *) SERIAL="$TV:5555" ;; esac
 export ANDROID_SERIAL="$SERIAL"
+# Let go of the TV at the end unless it was connected before: some TVs take one computer at a time,
+# and the phone apps the owner uses next (甲壳虫 and the like) could not connect until this
+# computer's adb server dropped it (issue #764). STAY_CONNECTED=1 keeps it.
+if [ "${STAY_CONNECTED:-0}" != 1 ] && ! adb devices 2>/dev/null | grep -q "^$SERIAL[[:space:]]"; then
+  trap 'adb disconnect "$SERIAL" >/dev/null 2>&1 || true; [ -n "${MAIN_SERIAL:-}" ] && adb disconnect "$MAIN_SERIAL" >/dev/null 2>&1; true' EXIT
+fi
 adb connect "$SERIAL" >/dev/null
 STATE=$(adb get-state 2>&1 || true)
 if [ "$STATE" != device ]; then
@@ -120,6 +127,67 @@ restart_aerial() {
   adb shell am start -W -n "$PKG/.MainActivity" >/dev/null 2>&1 || true
 }
 
+# Grants that only ADB can give; Aerial never asks for them on screen. Again on repair: an APK
+# installed without this script has none of them, and Home Guard never came on (issue #853).
+grant() {
+  adb shell pm grant "$PKG" android.permission.ACCESS_FINE_LOCATION 2>/dev/null || true   # Wi-Fi name
+  adb shell pm grant "$PKG" android.permission.WRITE_SECURE_SETTINGS 2>/dev/null || true  # keep Home Guard (and ADB) on
+  adb shell pm grant "$PKG" android.permission.READ_EXTERNAL_STORAGE 2>/dev/null || true  # IPTV channel list
+  adb shell appops set "$PKG" SYSTEM_ALERT_WINDOW allow 2>/dev/null || true             # open Aerial after boot
+  adb shell appops set "$PKG" WRITE_SETTINGS allow 2>/dev/null || true                  # brightness
+  adb shell appops set "$PKG" REQUEST_INSTALL_PACKAGES allow 2>/dev/null || true        # update from Control Center
+  # What is in front, where a launcher hides from accessibility (Xiaomi Android 6, issue #81).
+  # Android 5 knows the op only by this name.
+  adb shell appops set "$PKG" GET_USAGE_STATS allow 2>/dev/null || true
+  adb shell appops set "$PKG" android:get_usage_stats allow 2>/dev/null || true
+  # Android 13 and later restrict an app installed from a file (a USB stick, a file manager, Aerial's
+  # own update before 1.63): its accessibility service may not be switched on. Both TVs where Home
+  # Guard kept going off had it denied (OBE R3 Ultra Max and TCL 75T7M Pro, Android 14, issues #811
+  # #829). Older Android does not know the op, which is fine.
+  adb shell appops set "$PKG" ACCESS_RESTRICTED_SETTINGS allow 2>/dev/null || true
+  # TCL's 自启动管理 (TclAppBootManager in system_server) refuses to start or bind third-party apps
+  # after a reboot unless these TCL-only app ops allow it; without them the TV boots to TCL's launcher.
+  # FFALCON T966D5 (Android 14) names them AUTO_START / ASSOC_START (issue #817); it also puts them
+  # back to ignore on every boot, so there they last until the next reboot only.
+  # Other firmwares do not know the op names and refuse them, which is fine.
+  for op in APP_AUTO_START APP_ASSOC_START AUTO_START ASSOC_START; do
+    adb shell appops set "$PKG" "$op" allow >/dev/null 2>&1 || true
+  done
+  adb shell cmd notification allow_listener "$PKG/$PKG.guard.RevivalListener" 2>/dev/null || true  # come back after a kill
+  # Android 6 and 7 have no `cmd` (LeTV X4-43 and Dangbei F3, Android 6: "cmd: not found", issues
+  # #1127 #1145): add the listener to the setting itself, keeping the ones already there.
+  LISTENER="$PKG/$PKG.guard.RevivalListener"
+  LISTENERS=$(adb shell settings get secure enabled_notification_listeners 2>/dev/null | tr -d '\r')
+  case "$LISTENERS" in
+    *"$LISTENER"*) ;;
+    ""|null) adb shell settings put secure enabled_notification_listeners "$LISTENER" >/dev/null 2>&1 || true ;;
+    *) adb shell settings put secure enabled_notification_listeners "${LISTENERS}:${LISTENER}" >/dev/null 2>&1 || true ;;
+  esac
+}
+
+# Never pass an interrupted or corrupt download to the TV, even if curl exits successfully.
+# A subshell keeps this temporary-file trap separate from the ADB disconnect trap.
+download_apk() (
+  local flavor=$1 out="${TMPDIR:-/tmp}/aerial-$1.apk" partial url
+  command -v unzip >/dev/null || { echo "unzip is required to check downloaded APKs. Install unzip and run again." >&2; return 1; }
+  partial=$(mktemp "${TMPDIR:-/tmp}/aerial-$flavor.XXXXXX") || return 1
+  trap 'rm -f "$partial"' EXIT
+  for url in "https://aerial.qust.me/download/aerial-$flavor.apk" \
+             "https://github.com/$REPO/releases/latest/download/aerial-$flavor.apk"; do
+    echo "Downloading $url" >&2
+    if curl -fL --progress-bar --connect-timeout 10 -o "$partial" "$url"; then
+      if unzip -tq "$partial" </dev/null >/dev/null 2>&1; then
+        mv -f "$partial" "$out" || return 1
+        echo "$out"
+        return 0
+      fi
+      echo "Downloaded APK is incomplete or corrupt: $url" >&2
+    fi
+  done
+  echo "Could not download a complete aerial-$flavor.apk" >&2
+  return 1
+)
+
 # Android 4.0-4.4 cannot run the full app (Jetpack Compose needs Android 5.0). Aerial Lite is a
 # separate package that declares HOME and has no Home Guard, so the owner picks it once in
 # Android's home chooser (docs/LITE.md). Nothing else from the steps below applies.
@@ -143,12 +211,7 @@ if [ "$FLAVOR" = lite ] || [ "$OLD_ANDROID" = 1 ]; then
   if [ -n "${APK_FILE:-}" ]; then APK=$APK_FILE
   elif [ "${BUILD:-0}" = 1 ]; then ./gradlew -q --console=plain :lite:assembleRelease; APK=lite/build/outputs/apk/release/lite-release.apk
   else
-    APK="${TMPDIR:-/tmp}/aerial-lite.apk"
-    for url in "https://aerial.qust.me/download/aerial-lite.apk" "https://github.com/$REPO/releases/latest/download/aerial-lite.apk" ""; do
-      [ -n "$url" ] || { echo "Could not download aerial-lite.apk" >&2; exit 1; }
-      echo "Downloading $url" >&2
-      curl -fL --progress-bar --connect-timeout 10 -o "$APK" "$url" && break
-    done
+    APK=$(download_apk lite)
   fi
   echo "Installing $APK"
   OUT=$(adb install -r "$APK" 2>&1 | tr -d '\r') || true
@@ -167,6 +230,7 @@ fi
 
 if [ "$FLAVOR" = repair ]; then
   adb shell pm path "$PKG" >/dev/null 2>&1 || { echo "Aerial is not installed on this TV." >&2; exit 1; }
+  grant
   restart_aerial
   if wait_guard 8; then echo "Home Guard is running again. Press Home on the remote."; exit 0; fi
   echo "Aerial is open, but Home Guard is not running. Run the install command again." >&2
@@ -180,17 +244,11 @@ build() {
     echo "$APK_FILE"
   elif [ "${BUILD:-0}" = 1 ]; then
     local task="assemble$(tr '[:lower:]' '[:upper:]' <<< "${flavor:0:1}")${flavor:1}Release"
-    ./gradlew -q --console=plain "$task"
+    # build runs in a command substitution, where bash may clear errexit.
+    ./gradlew -q --console=plain "$task" || return $?
     echo "app/build/outputs/apk/$flavor/release/app-$flavor-release.apk"
   else
-    local out="${TMPDIR:-/tmp}/aerial-$flavor.apk" url
-    for url in "https://aerial.qust.me/download/aerial-$flavor.apk" \
-               "https://github.com/$REPO/releases/latest/download/aerial-$flavor.apk"; do
-      echo "Downloading $url" >&2
-      if curl -fL --progress-bar --connect-timeout 10 -o "$out" "$url"; then echo "$out"; return; fi
-    done
-    echo "Could not download aerial-$flavor.apk" >&2
-    return 1
+    download_apk "$flavor"
   fi
 }
 
@@ -217,8 +275,10 @@ installed_now() {
 # speaks that protocol. The TV downloads the APK from this computer through an ADB reverse tunnel,
 # so nothing is served on the network. The viewer confirms once on the TV (同意).
 tcast_install() {
-  local apk=$1 want=$2 dir srv rc=0
-  nc -z -G 3 "${SERIAL%%:*}" 6553 >/dev/null 2>&1 || return 1
+  local apk=$1 want=$2 dir srv rc=0 timeout_flag=-w
+  # Apple's nc uses -G for the connection timeout; Linux/OpenBSD nc has no -G.
+  [ "$(uname -s)" != Darwin ] || timeout_flag=-G
+  nc -z "$timeout_flag" 3 "${SERIAL%%:*}" 6553 >/dev/null 2>&1 || return 1
   dir=$(mktemp -d)
   cp "$apk" "$dir/Aerial.apk"
   python3 -m http.server 8765 --bind 127.0.0.1 --directory "$dir" >/dev/null 2>&1 &
@@ -235,7 +295,12 @@ tcast_install() {
 BEFORE=$(installed_code)
 APK=$(build "$FLAVOR")
 echo "Installing $APK"
-if ! OUT=$(adb install -r "$APK" 2>&1); then
+# Some firmwares exit 0 on a failed install (TCL p331, Android 5.1: "Failure [INSTALL_PARSE_FAILED_
+# INCONSISTENT_CERTIFICATES]" with exit 0, issue #1017), so only "Success" counts.
+# Catch a nonzero exit here so errexit does not skip the fallback and error explanations below.
+RC=0
+OUT=$(adb install -r "$APK" 2>&1) || RC=$?
+if [ "$RC" -ne 0 ] || ! printf '%s\n' "$OUT" | grep -q Success; then
   echo "$OUT" >&2
   case "$OUT" in
     *VERIFICATION_FAILURE*)
@@ -270,6 +335,11 @@ if ! OUT=$(adb install -r "$APK" 2>&1); then
       [ "$TCAST_OK" = 1 ] || installed_now || { echo "Aerial was not installed; nothing else was changed." >&2; exit 1; }
       FLAVOR=guard
       ;;
+    *INCONSISTENT_CERTIFICATES*|*UPDATE_INCOMPATIBLE*)
+      echo "The Aerial on this TV is signed with another key (a build of someone else's), so it cannot be updated in place." >&2
+      echo "Uninstall it first (this drops its settings, wallpapers and photos): adb uninstall $PKG" >&2
+      exit 1
+      ;;
     *)
       [ "$FLAVOR" = standard ] && echo "This firmware may refuse apps that declare a home screen. Try: TV=$TV $0 guard" >&2
       exit 1
@@ -277,18 +347,7 @@ if ! OUT=$(adb install -r "$APK" 2>&1); then
   esac
 fi
 
-# Grants that only ADB can give; Aerial never asks for them on screen.
-adb shell pm grant "$PKG" android.permission.ACCESS_FINE_LOCATION 2>/dev/null || true   # Wi-Fi name
-adb shell pm grant "$PKG" android.permission.WRITE_SECURE_SETTINGS 2>/dev/null || true  # keep Home Guard (and ADB) on
-adb shell pm grant "$PKG" android.permission.READ_EXTERNAL_STORAGE 2>/dev/null || true  # IPTV channel list
-adb shell appops set "$PKG" SYSTEM_ALERT_WINDOW allow 2>/dev/null || true             # open Aerial after boot
-adb shell appops set "$PKG" WRITE_SETTINGS allow 2>/dev/null || true                  # brightness
-adb shell appops set "$PKG" REQUEST_INSTALL_PACKAGES allow 2>/dev/null || true        # update from Control Center
-# What is in front, where a launcher hides from accessibility (Xiaomi Android 6, issue #81).
-# Android 5 knows the op only by this name.
-adb shell appops set "$PKG" GET_USAGE_STATS allow 2>/dev/null || true
-adb shell appops set "$PKG" android:get_usage_stats allow 2>/dev/null || true
-adb shell cmd notification allow_listener "$PKG/$PKG.guard.RevivalListener" 2>/dev/null || true  # come back after a kill
+grant
 # Android 9 on Xiaomi MiTV-MFTP0 reports success but never binds it (issue #72): low-RAM devices
 # get no notification listeners at all. Aerial's sync adapter brings it back there instead, later.
 if ! adb shell dumpsys notification 2>/dev/null | grep -q "$PKG/$PKG.guard.RevivalListener"; then
@@ -305,14 +364,6 @@ if [ "$(adb shell settings get secure screensaver_enabled | tr -d '\r')" = 1 ]; 
   adb shell am broadcast -a "$PKG.CONFIG" -n "$PKG/.guard.ConfigReceiver" --ez own_screensaver true >/dev/null
   echo "Aerial's screensaver is now the TV's screensaver."
 fi
-# TCL's 自启动管理 (TclAppBootManager in system_server) refuses to start or bind third-party apps
-# after a reboot unless these TCL-only app ops allow it; without them the TV boots to TCL's launcher.
-# FFALCON T966D5 (Android 14) names them AUTO_START / ASSOC_START (issue #817); it also puts them
-# back to ignore on every boot, so there they last until the next reboot only.
-# Other firmwares do not know the op names and refuse them, which is fine.
-for op in APP_AUTO_START APP_ASSOC_START AUTO_START ASSOC_START; do
-  adb shell appops set "$PKG" "$op" allow >/dev/null 2>&1 || true
-done
 if [ "${KEEP_ADB:-0}" = 1 ]; then
   adb shell am broadcast -a "$PKG.CONFIG" -n "$PKG/.guard.ConfigReceiver" --ez keep_adb true >/dev/null
   echo "Aerial will switch ADB debugging back on whenever the TV turns it off."
@@ -347,8 +398,14 @@ if [ "$FLAVOR" = standard ]; then
     adb shell setprop persist.vt.use_home_pkg "$PKG"
     echo "Hisense: Home now opens Aerial instead of $VT_HOME."
   fi
-  adb shell cmd role add-role-holder --user 0 android.app.role.HOME "$PKG" >/dev/null 2>&1 \
-    || adb shell cmd package set-home-activity --user 0 "$PKG/.MainActivity" >/dev/null 2>&1 || true
+  # Not on Xiaomi (PatchWall, com.mitv.tvhome installed): most firmwares ignore it, but one Android 9
+  # set took it, PatchWall then ran as an ordinary app outside the home stack, and Xiaomi's short
+  # press of the power key crashed its settings app and never put the TV to sleep (#848). Home
+  # Guard takes over there as everywhere else on Xiaomi.
+  if [ -z "$(adb shell pm path com.mitv.tvhome 2>/dev/null | tr -d '\r')" ]; then
+    adb shell cmd role add-role-holder --user 0 android.app.role.HOME "$PKG" >/dev/null 2>&1 \
+      || adb shell cmd package set-home-activity --user 0 "$PKG/.MainActivity" >/dev/null 2>&1 || true
+  fi
   HOME_NOW=$(resolve_home)
   case "$HOME_NOW" in
     "$PKG"/*)
@@ -382,3 +439,4 @@ echo "Home Guard is enabled but Android has not started it." >&2
 echo "Some TCL / Hisense firmwares block sideloaded accessibility services: allow Aerial under the" >&2
 echo "TV's security app (自启动 / 无障碍 / 权限管理), then run this script again." >&2
 exit 1
+

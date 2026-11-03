@@ -100,6 +100,7 @@ import app.orchard.tv.system.DiagLog
 import app.orchard.tv.ui.theme.LocalReducedMotion
 import app.orchard.tv.ui.theme.Motion
 import app.orchard.tv.ui.theme.Type
+import app.orchard.tv.ui.components.DiagLayers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -258,7 +259,7 @@ fun AppTile(
                 translationY = (1f - appear.value) * 18.dp.toPx()
             },
     ) {
-        if (lift > 0.01f && !AerialSettings.lite) {
+        if (lift > 0.01f && !AerialSettings.lite && DiagLayers.shows("shadow")) {
             // A lifted tile casts a soft shadow below it, as cards do on tvOS. The system's
             // elevation shadow is too faint to read on a TV; this one is baked, so it costs one
             // image draw while a tile is lifted.
@@ -511,7 +512,7 @@ fun AppTile(
             }
         }
 
-        if (showName) BasicText(
+        if (showName && DiagLayers.shows("names")) BasicText(
             text = app.label,
             style = Type.Headline.copy(
                 textAlign = TextAlign.Center,
