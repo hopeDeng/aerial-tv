@@ -14,8 +14,10 @@ sealed interface TvEvent {
     data class WindowGotFocus(val hasChannel: Boolean) : TvEvent
     data object WindowLostFocus : TvEvent
     data object WindowClicked : TvEvent
+    /** The empty slot: fullscreen first, so the phone setup QR has a place to show. */
+    data object WindowSetup : TvEvent
     data class Idle(val hasChannel: Boolean) : TvEvent
-    data object FullscreenExited : TvEvent
+    data class FullscreenExited(val hasChannel: Boolean) : TvEvent
     data object AppLaunched : TvEvent
     /** Home's grid scrolled past its shelf: the slot slid away with it, so live TV stops. */
     data object LeftHome : TvEvent
@@ -57,6 +59,13 @@ object TvStateMachine {
             )
             else -> TvTransition(state.copy(focused = false), TvEffect.None)
         }
+        TvEvent.WindowSetup -> when (state.window) {
+            TvWindow.Fullscreen -> keep(state)
+            else -> TvTransition(
+                state.copy(window = TvWindow.Fullscreen, focused = true, playback = TvPlayback.Idle),
+                TvEffect.None,
+            )
+        }
         TvEvent.WindowClicked -> when (state.window) {
             TvWindow.Preview -> TvTransition(state.copy(window = TvWindow.Fullscreen), TvEffect.EnterFullscreen)
             TvWindow.Stopped, TvWindow.Collapsed ->
@@ -76,8 +85,12 @@ object TvStateMachine {
             else -> keep(state)
         }
         // Back from fullscreen is the grid, not a preview: the icon waits for focus, so stop cleanly.
-        TvEvent.FullscreenExited -> TvTransition(
-            state.copy(window = TvWindow.Collapsed, focused = false, playback = TvPlayback.Idle),
+        is TvEvent.FullscreenExited -> TvTransition(
+            state.copy(
+                window = if (event.hasChannel) TvWindow.Collapsed else TvWindow.Stopped,
+                focused = false,
+                playback = TvPlayback.Idle,
+            ),
             TvEffect.Stop,
         )
         /**

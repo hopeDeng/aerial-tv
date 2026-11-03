@@ -7,6 +7,8 @@ data class TvChannel(
     val enabled: Boolean,
     val currentSource: Int,
     val sources: List<TvSource>,
+    /** One of the user's group names, or null for ungrouped. */
+    val group: String? = null,
 ) {
     /** The saved source first, then every other enabled source in file order. */
     fun playableSources(): List<TvSource> {

@@ -129,6 +129,8 @@
     <string name="st_names">Қолданба атаулары</string>
     <string name="st_names_focused">Таңдалған қолданба</string>
     <string name="st_names_all">Барлық қолданбалар</string>
+    <string name="st_live_window">ТВ терезесі</string>
+    <string name="st_live_window_hint">Басты экранда тікелей эфир терезесін көрсету.</string>
     <string name="st_names_hint">Атаулар әр қолданбаның астында немесе тек таңдалғанның астында, Apple TV сияқты.</string>
     <string name="ss_kind">Түрі</string>
     <string name="wp_weather_city">Орналасқан жер</string>
@@ -256,6 +258,10 @@
     <string name="tv_epg_off_air">%1$s  Қазір бағдарлама жоқ</string>
     <string name="tv_channel_list">Арналар</string>
     <string name="tv_channel_list_n">Арналар (%1$d)</string>
+    <string name="tv_group_recent">Жуырда</string>
+    <string name="tv_group_all">Барлығы</string>
+    <string name="tv_group_ungrouped">Топсыз</string>
+    <string name="tv_group_empty">Бұл топта әзірге арна жоқ</string>
     <string name="tv_channel_disabled">Өшірілген</string>
     <string name="tv_source_list_n">%1$s · %2$d дереккөз</string>
     <string name="tv_source_current">Қазір</string>

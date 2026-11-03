@@ -71,10 +71,13 @@ fun TvChannelGrid(tv: TvController) {
 
     val focus = remember { FocusRequester() }
     val gridState = rememberLazyGridState()
-    val count = tv.channels.size
+    val visible = tv.channelsIn()
+    val count = visible.size
     val rowHeight = with(LocalDensity.current) { CellHeight.roundToPx() }
     var selected by remember {
-        mutableIntStateOf((tv.current?.first ?: 0).coerceIn(0, (count - 1).coerceAtLeast(0)))
+        mutableIntStateOf(
+            visible.indexOf(tv.current?.first ?: -1).coerceIn(0, (count - 1).coerceAtLeast(0)),
+        )
     }
 
     fun reveal(index: Int, downward: Boolean) {
@@ -111,8 +114,9 @@ fun TvChannelGrid(tv: TvController) {
         runCatching { focus.requestFocus() }
         if (count > 0) gridState.requestScrollToItem(selected / Columns * Columns)
     }
-    LaunchedEffect(count) {
-        selected = selected.coerceIn(0, (count - 1).coerceAtLeast(0))
+    LaunchedEffect(tv.selectedGroup, count) {
+        val current = visible.indexOf(tv.current?.first ?: -1)
+        selected = if (current >= 0) current else selected.coerceIn(0, (count - 1).coerceAtLeast(0))
     }
 
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
@@ -152,7 +156,7 @@ fun TvChannelGrid(tv: TvController) {
                         NativeKeyEvent.KEYCODE_DPAD_CENTER,
                         NativeKeyEvent.KEYCODE_ENTER,
                         NativeKeyEvent.KEYCODE_NUMPAD_ENTER -> {
-                            tv.playChannel(selected)
+                            visible.getOrNull(selected)?.let { tv.playChannel(it) }
                             true
                         }
                         NativeKeyEvent.KEYCODE_MENU -> {
@@ -175,8 +179,8 @@ fun TvChannelGrid(tv: TvController) {
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxSize(),
             ) {
-                itemsIndexed(tv.channels) { index, channel ->
-                    GridCell(channel = channel, selected = index == selected)
+                itemsIndexed(visible) { position, index ->
+                    GridCell(channel = tv.channels[index], selected = position == selected)
                 }
             }
         }

@@ -72,6 +72,9 @@ class TvController(
 ) {
     val prefs = TvPrefs(context)
     var channels by mutableStateOf<List<TvChannel>>(emptyList()); private set
+    var groups by mutableStateOf<List<String>>(emptyList()); private set
+    var selectedGroup by mutableStateOf(tvGroupFilterOfKey(prefs.channelGroup)); private set
+    var watchStats by mutableStateOf(prefs.watchStats); private set
     var current by mutableStateOf<Pair<Int, TvSource>?>(null); private set
     var window by mutableStateOf(TvWindow.Collapsed); private set
     var playback by mutableStateOf(TvPlayback.Idle); private set
@@ -109,6 +112,10 @@ class TvController(
     private var scrolledAway = false
     private var loadedStamp = 0L
     private val failed = mutableSetOf<String>()
+    private val watch = TvWatchHistory(prefs.watchStats) { stats ->
+        watchStats = stats
+        prefs.watchStats = stats
+    }
 
     init {
         player.onPlaybackChanged = { value ->
@@ -127,10 +134,12 @@ class TvController(
         // the list as loaded.
         loadedStamp = TvSources.stamp(context)
         loadJob = scope.launch {
-            val loadedChannels = TvSources.load(context)
-            channels = loadedChannels
-            logLoaded(loadedChannels)
-            current = restore(loadedChannels, prefs.lastChannel)
+            val data = withContext(Dispatchers.IO) { TvStore.load(context) }
+            channels = data.channels
+            groups = data.groups
+            clampGroup()
+            logLoaded(data.channels)
+            current = restore(data.channels, prefs.lastChannel)
             loaded = true
             if (current == null) {
                 state = state.copy(window = TvWindow.Stopped)
@@ -149,15 +158,17 @@ class TvController(
         loadJob?.cancel()
         loadJob = scope.launch {
             clearSourceTest()
-            val loadedChannels = TvSources.load(context)
+            val data = withContext(Dispatchers.IO) { TvStore.load(context) }
             val oldName = current?.let { channels.getOrNull(it.first)?.name } ?: prefs.lastChannel
-            channels = loadedChannels
+            channels = data.channels
+            groups = data.groups
+            clampGroup()
             failed.clear()
-            logLoaded(loadedChannels)
+            logLoaded(data.channels)
             // A reload can win the race with start()'s own read (onResume arrives before the file
             // has been read once), and this is the job that survives: the list is in either way.
             loaded = true
-            val next = restore(loadedChannels, oldName)
+            val next = restore(data.channels, oldName)
             current = next
             if (next == null) {
                 stopToCollapsed()
@@ -171,13 +182,15 @@ class TvController(
      * The phone page saved a new list. Keep the source being watched when it still exists, otherwise
      * move to the same channel's next source; if that channel is gone, stay near its old position.
      */
-    fun applyChannels(newChannels: List<TvChannel>) {
+    fun applyChannels(newChannels: List<TvChannel>, newGroups: List<String> = groups) {
         val old = current
         val oldName = old?.let { channels.getOrNull(it.first)?.name } ?: prefs.lastChannel
         val oldUrl = old?.second?.url
         val oldIndex = old?.first ?: 0
         val wasActive = active
         channels = newChannels
+        groups = newGroups
+        clampGroup()
         loaded = true
         loadedStamp = TvSources.stamp(context)
         failed.clear()
@@ -201,6 +214,7 @@ class TvController(
             state = state.copy(window = TvWindow.Collapsed)
             window = TvWindow.Collapsed
         }
+        syncWatch()
     }
 
     /** Home came to the front: refresh the list. Nothing auto-plays; the icon waits for focus. */
@@ -237,13 +251,33 @@ class TvController(
     }
 
     fun onClick() {
+        if (current == null) current = restore(channels, prefs.lastChannel)
+        if (current == null) {
+            failed.clear()
+            apply(TvEvent.WindowSetup)
+            openManager()
+            return
+        }
         if (window == TvWindow.Stopped) {
-            current = restore(channels, prefs.lastChannel) ?: return
             failed.clear()
             state = state.copy(playback = TvPlayback.Idle)
         }
-        if (current == null) return
         apply(TvEvent.WindowClicked)
+    }
+
+    /** The channel list's group picker, kept across openings and restarts. */
+    fun selectGroup(filter: TvGroupFilter) {
+        val next = if (filter is TvGroupFilter.Named && filter.name !in groups) TvGroupFilter.All else filter
+        selectedGroup = next
+        prefs.channelGroup = next.storageKey()
+    }
+
+    fun channelsIn(group: TvGroupFilter = selectedGroup): List<Int> =
+        tvChannelsInGroup(channels, groups, group, watchStats)
+
+    private fun clampGroup() {
+        val group = selectedGroup
+        if (group is TvGroupFilter.Named && group.name !in groups) selectGroup(TvGroupFilter.All)
     }
 
     fun onNext() {
@@ -327,22 +361,26 @@ class TvController(
         window = TvWindow.Fullscreen
         focused = true
         player.resume()
+        syncWatch()
     }
 
     fun exitFullscreen() {
         closePanels()
-        apply(TvEvent.FullscreenExited)
+        apply(TvEvent.FullscreenExited(hasChannel = current != null))
         releaseFocus()
     }
 
     /** The channel list is fullscreen's own: the window state does not change while it is up. */
     fun openChannelList() {
+        watch.flush()
+        selectGroup(tvGroupOfChannel(current?.let { channels.getOrNull(it.first) }, groups))
         closePanels()
         channelListOpen = true
         armPanelIdle()
     }
 
     fun openChannelGrid() {
+        watch.flush()
         closePanels()
         channelGridOpen = true
         armPanelIdle()
@@ -454,6 +492,7 @@ class TvController(
 
     /** Stops playback and leaves the icon, or the placeholder when there is nothing to play. */
     private fun stopToCollapsed() {
+        watch.stop()
         clearSourceTest()
         retryJob?.cancel()
         player.stop()
@@ -465,6 +504,7 @@ class TvController(
     }
 
     fun release() {
+        watch.stop()
         loadJob?.cancel()
         osdJob?.cancel()
         retryJob?.cancel()
@@ -542,6 +582,7 @@ class TvController(
         state = state.copy(playback = TvPlayback.Buffering)
         playback = TvPlayback.Buffering
         player.play(at.second.url)
+        syncWatch()
     }
 
     /**
@@ -594,6 +635,17 @@ class TvController(
             TvEffect.EnterFullscreen -> player.resume()
             TvEffect.None -> Unit
         }
+        syncWatch()
+    }
+
+    /** Count only a fullscreen, playable channel; every other state settles the current stretch. */
+    private fun syncWatch() {
+        val name = if (window == TvWindow.Fullscreen) {
+            current?.let { channels.getOrNull(it.first)?.name }
+        } else {
+            null
+        }
+        watch.start(name)
     }
 
     private fun showOsd(text: String) {

@@ -129,6 +129,8 @@
     <string name="st_names">Назви застосунків</string>
     <string name="st_names_focused">Вибраний застосунок</string>
     <string name="st_names_all">Усі застосунки</string>
+    <string name="st_live_window">Вікно ТБ</string>
+    <string name="st_live_window_hint">Показувати вікно прямого ефіру на головному екрані.</string>
     <string name="st_names_hint">Назви під кожним застосунком або лише під вибраним, як на Apple TV.</string>
     <string name="ss_kind">Вигляд</string>
     <string name="wp_weather_city">Місцезнаходження</string>
@@ -256,6 +258,10 @@
     <string name="tv_epg_off_air">%1$s  Зараз програми немає</string>
     <string name="tv_channel_list">Канали</string>
     <string name="tv_channel_list_n">Канали (%1$d)</string>
+    <string name="tv_group_recent">Нещодавні</string>
+    <string name="tv_group_all">Усі</string>
+    <string name="tv_group_ungrouped">Без групи</string>
+    <string name="tv_group_empty">У цій групі ще немає каналів</string>
     <string name="tv_channel_disabled">Вимкнено</string>
     <string name="tv_source_list_n">%1$s · джерел: %2$d</string>
     <string name="tv_source_current">Зараз</string>

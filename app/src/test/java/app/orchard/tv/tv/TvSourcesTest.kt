@@ -29,6 +29,23 @@ class TvSourcesTest {
         assertEquals(listOf("湖南卫视", "隐藏台", "空台", "好台"), channels.map { it.name })
     }
 
+    @Test fun `a channel keeps its group when one is saved`() {
+        val channels = TvSources.parse(
+            """{"channels":[{"name":"CCTV1","group":"央视频道","sources":[{"url":"http://a/1"}]}]}""",
+        )
+        assertEquals("央视频道", channels.single().group)
+    }
+
+    @Test fun `json null and the literal text null both mean ungrouped`() {
+        val channels = TvSources.parse(
+            """{"channels":[
+                {"name":"A","group":null,"sources":[{"url":"http://a/1"}]},
+                {"name":"B","group":"null","sources":[{"url":"http://b/1"}]}
+            ]}""",
+        )
+        assertEquals(listOf(null, null), channels.map { it.group })
+    }
+
     @Test fun `parseOrNull tells an empty list from a damaged file`() {
         assertEquals(emptyList<TvChannel>(), TvSources.parseOrNull("""{"channels":[]}"""))
         assertEquals(null, TvSources.parseOrNull("not json"))

@@ -311,7 +311,7 @@ fun HomeScreen(
     val topRowEnd = minOf(columns, apps.size) - 1
     // The window shows while Home does: the screensaver covers the whole screen, and fullscreen has
     // its own page. Both leave the clock alone.
-    val slotShown = !vm.screensaverVisible
+    val slotShown = !vm.screensaverVisible && AerialSettings.showLiveWindow
     // The glass plate under the top row decides which edge the live window lines its right side up with.
     val plateShown = apps.isNotEmpty() && AerialSettings.homePlate
 
@@ -423,7 +423,10 @@ fun HomeScreen(
         focusRequester = weatherRequester,
         onClick = { tv.openCityPicker() },
         onUp = { runCatching { pillRequester.requestFocus() } },
-        onRight = { runCatching { windowRequester.requestFocus() } },
+        onRight = {
+            if (AerialSettings.showLiveWindow) runCatching { windowRequester.requestFocus() }
+            else focusApp(minOf(columns, apps.size) - 1)
+        },
         onDown = { focusApp(0) },
     ) else null
 

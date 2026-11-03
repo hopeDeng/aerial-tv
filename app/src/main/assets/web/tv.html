@@ -36,8 +36,9 @@
     backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px);
     border-bottom: .5px solid var(--sep); padding: max(10px, env(safe-area-inset-top)) 16px 10px;
   }
-  .topin { max-width: 1120px; margin: 0 auto; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
-  .brand { flex: 1; min-width: 180px; }
+  .topin { max-width: 1120px; margin: 0 auto; display: flex; flex-direction: column; gap: 10px; }
+  .titlebar { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+  .brand { flex: 1; min-width: 0; }
   .brand h1 { margin: 0; font-size: 26px; letter-spacing: -.02em; }
   .brand p { margin: 2px 0 0; font-size: 13px; color: var(--secondary); }
   .tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -56,6 +57,16 @@
   .lang { border: 1px solid var(--sep); background: var(--card); border-radius: 9px; min-height: 36px; padding: 4px 8px; }
   main { max-width: 1120px; margin: 0 auto; padding: 16px 16px calc(48px + env(safe-area-inset-bottom)); }
   .hint { color: var(--secondary); font-size: 13px; margin: 0 4px 14px; }
+  .searchbar { display: flex; gap: 8px; margin: 0 0 12px; }
+  .search {
+    flex: 1; min-width: 0; border: 1px solid var(--sep); background: var(--card); border-radius: 10px;
+    padding: 10px 12px; outline: none; font-size: 15px; color: var(--label);
+  }
+  .searchgroup {
+    flex: 0 1 38%; min-width: 110px; max-width: 220px; border: 1px solid var(--sep);
+    background: var(--card); border-radius: 10px; padding: 4px 8px; font-size: 15px; color: var(--label);
+  }
+  .search:focus, .searchgroup:focus { border-color: var(--tint); }
   #channels { display: grid; gap: 12px; }
   @media (min-width: 900px) { #channels { grid-template-columns: 1fr 1fr; align-items: start; } }
   .card {
@@ -63,11 +74,13 @@
     border: 1px solid transparent; box-shadow: 0 1px 2px rgba(0,0,0,.04);
   }
   .card.current { border-color: color-mix(in srgb, var(--tint) 45%, transparent); }
+  .card.picked { border-color: var(--tint); box-shadow: 0 0 0 1px color-mix(in srgb, var(--tint) 45%, transparent); }
   .card.off { opacity: .72; }
+  .pick { width: 20px; height: 20px; margin: 0; flex-shrink: 0; accent-color: var(--tint); }
   .chead { display: flex; align-items: center; gap: 10px; padding: 14px 14px 8px; }
   .cname { flex: 1; min-width: 0; border: 0; background: none; text-align: left; padding: 0; }
-  .cname b { display: block; font-size: 17px; letter-spacing: -.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .cname span { display: block; color: var(--secondary); font-size: 12px; margin-top: 2px; }
+  .cnameline { display: flex; align-items: center; gap: 7px; min-width: 0; }
+  .cnameline b { min-width: 0; font-size: 17px; letter-spacing: -.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .badges { display: flex; gap: 6px; padding: 0 14px 6px; flex-wrap: wrap; }
   .tag { font-size: 11px; border-radius: 999px; padding: 2px 7px; background: var(--fill); color: var(--secondary); white-space: nowrap; }
   .tag.current { background: color-mix(in srgb, var(--tint) 16%, transparent); color: var(--tint); }
@@ -122,6 +135,10 @@
   }
   .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--tint); }
   .field textarea { min-height: 90px; resize: vertical; font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
+  .check { display: flex; gap: 8px; align-items: flex-start; font-size: 14px; }
+  .check input { margin-top: 2px; }
+  .grow { flex: 1; min-width: 0; }
+  .grow b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .note { font-size: 13px; color: var(--secondary); }
   .note.warn { color: var(--warn); }
   .sheetacts { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; flex-wrap: wrap; }
@@ -146,9 +163,12 @@
 <div id="progress" class="progress" hidden></div>
 <header class="top">
   <div class="topin">
-    <div class="brand">
-      <h1 data-i18n="title"></h1>
-      <p id="subtitle"></p>
+    <div class="titlebar">
+      <div class="brand">
+        <h1 data-i18n="title"></h1>
+        <p id="subtitle"></p>
+      </div>
+      <select id="lang" class="lang" aria-label="Language"></select>
     </div>
     <div class="tools">
       <button id="add" class="btn primary"><span>+</span><span data-i18n="add_channel"></span></button>
@@ -156,11 +176,17 @@
       <button id="json" class="btn"><span data-i18n="import_json"></span></button>
       <button id="exjson" class="btn"><span>JSON</span> <span class="note" data-i18n="export"></span></button>
       <button id="exm3u" class="btn"><span>M3U</span> <span class="note" data-i18n="export"></span></button>
-      <select id="lang" class="lang" aria-label="Language"></select>
+      <button id="groups" class="btn"><span data-i18n="manage_groups"></span></button>
+      <button id="batchdel" class="btn danger" disabled><span data-i18n="batch_delete"></span></button>
+      <button id="batchgroup" class="btn" disabled><span data-i18n="batch_group"></span></button>
     </div>
   </div>
 </header>
 <main>
+  <div class="searchbar">
+    <input id="search" class="search" type="search" autocomplete="off">
+    <select id="groupFilter" class="searchgroup"></select>
+  </div>
   <p id="hint" class="hint"></p>
   <div id="channels"></div>
   <div id="empty" class="empty" hidden><b data-i18n="no_channels"></b><span data-i18n="empty_hint"></span></div>
@@ -177,6 +203,7 @@
 const NAMES = { zh: '中文', en: 'English', ru: 'Русский', uk: 'Українська', kk: 'Қазақша' };
 const TEXTS = {
 zh: {
+ manage_groups:'管理分组', group:'分组', ungrouped:'未分组', assign_group:'设置分组', add_group:'新增分组', group_name:'分组名称', group_name_ph:'例如：体育频道', no_groups:'还没有分组，添加一个吧。', delete_group:'删除分组', delete_group_q:'删除“{name}”？', delete_group_hint:'频道不会被删除，只会变成未分组。', remove_from_pool:'同时从源池里移除', group_exists:'这个分组已经存在', err_group:'分组不存在或名称无效', batch_delete:'批量删除', batch_group:'批量分组', select:'选择频道', batch_delete_q:'删除选中的 {n} 个频道？', batch_group_note:'给选中的 {n} 个频道设置分组', search_ph:'按频道名称搜索', all_groups:'全部分组', no_results:'没有找到频道', no_results_hint:'换个名称试试。',
  title:'频道管理', subtitle:'{n} 个频道 · 保存后电视立即生效', add_channel:'添加频道', import:'导入 m3u',
  import_json:'导入 JSON', export:'导出', refresh:'刷新', channels:'频道', sources_count:'{n} 个源',
  disabled:'已禁用', current:'正在播放', set_current:'设为当前源', rename:'改名', delete:'删除',
@@ -209,6 +236,7 @@ zh: {
  n_error:'连接失败', n_playlist_depth:'嵌套层级过多'
 },
 en: {
+ manage_groups:'Manage groups', group:'Group', ungrouped:'Ungrouped', assign_group:'Set group', add_group:'Add group', group_name:'Group name', group_name_ph:'e.g. Sports', no_groups:'No groups yet. Add one below.', delete_group:'Delete group', delete_group_q:'Delete “{name}”?', delete_group_hint:'Channels are kept and become ungrouped.', remove_from_pool:'Also remove it from the source pool', group_exists:'That group already exists', err_group:'Pick a valid group', batch_delete:'Delete selected', batch_group:'Group selected', select:'Select channel', batch_delete_q:'Delete the {n} selected channels?', batch_group_note:'Set a group for the {n} selected channels', search_ph:'Search by channel name', all_groups:'All groups', no_results:'No channels found', no_results_hint:'Try another name.',
  title:'Channels', subtitle:'{n} channels · save and the TV updates', add_channel:'Add channel',
  import:'Import m3u', import_json:'Import JSON', export:'Export', refresh:'Refresh', channels:'Channels',
  sources_count:'{n} sources', disabled:'Off', current:'Playing', set_current:'Play this source',
@@ -246,6 +274,7 @@ en: {
  n_playlist_depth:'too many nested playlists'
 },
 ru: {
+ manage_groups:'Группы', group:'Группа', ungrouped:'Без группы', assign_group:'Назначить группу', add_group:'Добавить группу', group_name:'Название группы', group_name_ph:'например, Спорт', no_groups:'Групп пока нет. Добавьте ниже.', delete_group:'Удалить группу', delete_group_q:'Удалить «{name}»?', delete_group_hint:'Каналы останутся и перейдут в «Без группы».', remove_from_pool:'Также удалить из пула источников', group_exists:'Такая группа уже есть', err_group:'Выберите существующую группу', batch_delete:'Удалить выбранные', batch_group:'Группа для выбранных', select:'Выбрать канал', batch_delete_q:'Удалить выбранные каналы ({n})?', batch_group_note:'Назначить группу {n} выбранным каналам', search_ph:'Поиск по названию канала', all_groups:'Все группы', no_results:'Каналы не найдены', no_results_hint:'Попробуйте другое название.',
  title:'Каналы', subtitle:'{n} каналов · изменения сразу на телевизоре', add_channel:'Добавить канал',
  import:'Импорт m3u', import_json:'Импорт JSON', export:'Экспорт', refresh:'Обновить', channels:'Каналы',
  sources_count:'Источников: {n}', disabled:'Выкл.', current:'В эфире', set_current:'Включить этот источник',
@@ -283,6 +312,7 @@ ru: {
  n_playlist_depth:'слишком много вложенных плейлистов'
 },
 uk: {
+ manage_groups:'Групи', group:'Група', ungrouped:'Без групи', assign_group:'Призначити групу', add_group:'Додати групу', group_name:'Назва групи', group_name_ph:'наприклад, Спорт', no_groups:'Груп ще немає. Додайте нижче.', delete_group:'Видалити групу', delete_group_q:'Видалити «{name}»?', delete_group_hint:'Канали залишаться і стануть без групи.', remove_from_pool:'Також вилучити з пулу джерел', group_exists:'Така група вже є', err_group:'Виберіть наявну групу', batch_delete:'Видалити вибрані', batch_group:'Група для вибраних', select:'Вибрати канал', batch_delete_q:'Видалити вибрані канали ({n})?', batch_group_note:'Призначити групу {n} вибраним каналам', search_ph:'Пошук за назвою каналу', all_groups:'Усі групи', no_results:'Канали не знайдено', no_results_hint:'Спробуйте іншу назву.',
  title:'Канали', subtitle:'{n} каналів · зміни одразу на телевізорі', add_channel:'Додати канал',
  import:'Імпорт m3u', import_json:'Імпорт JSON', export:'Експорт', refresh:'Оновити', channels:'Канали',
  sources_count:'Джерел: {n}', disabled:'Вимк.', current:'У ефірі', set_current:'Увімкнути це джерело',
@@ -320,6 +350,7 @@ uk: {
  n_playlist_depth:'забагато вкладених плейлистів'
 },
 kk: {
+ manage_groups:'Топтар', group:'Топ', ungrouped:'Топсыз', assign_group:'Топ тағайындау', add_group:'Топ қосу', group_name:'Топ атауы', group_name_ph:'мысалы: Спорт', no_groups:'Әзірге топ жоқ. Төменде қосыңыз.', delete_group:'Топты жою', delete_group_q:'«{name}» жойылсын ба?', delete_group_hint:'Арналар сақталады және топсыз болады.', remove_from_pool:'Дереккөздер пулынан да жою', group_exists:'Бұл топ бұрыннан бар', err_group:'Жарамды топ таңдаңыз', batch_delete:'Таңдалғандарды жою', batch_group:'Таңдалғандарға топ', select:'Арнаны таңдау', batch_delete_q:'Таңдалған {n} арна жойылсын ба?', batch_group_note:'Таңдалған {n} арнаға топ тағайындау', search_ph:'Арна атауы бойынша іздеу', all_groups:'Барлық топтар', no_results:'Арналар табылмады', no_results_hint:'Басқа атауды қолданып көріңіз.',
  title:'Арналар', subtitle:'{n} арна · сақтаған соң теледидарда бірден жаңарады', add_channel:'Арна қосу',
  import:'m3u импорты', import_json:'JSON импорты', export:'Экспорт', refresh:'Жаңарту', channels:'Арналар',
  sources_count:'{n} дереккөз', disabled:'Өшірулі', current:'Ойнап жатыр', set_current:'Осы дереккөзді қосу',
@@ -374,17 +405,22 @@ function t(key, vars) {
 const base = location.pathname.replace(/\/?$/, '/');
 const $ = (s, r) => (r || document).querySelector(s);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const normGroup = g => (g == null || g === 'null') ? '' : String(g);
 const ERR = {
   'channel exists':'err_channel_exists', 'duplicate source':'err_duplicate', 'last source':'err_last_source',
   'preview expired':'err_preview', 'none selected':'err_none', 'test running':'err_running',
   'bad json':'err_json', 'no entries':'err_playlist', 'bad url':'err_url', 'missing name':'err_name',
   'too large':'err_too_large', 'no playlist':'err_empty', 'no json':'err_empty',
-  'nothing to test':'err_empty', 'no sources':'err_empty', 'bad source':'err_playlist'
+  'nothing to test':'err_empty', 'no sources':'err_empty', 'bad source':'err_playlist',
+  'group exists':'group_exists', 'bad group':'err_group'
 };
 function errText(msg) { return ERR[msg] ? t(ERR[msg]) : (msg || t('error')); }
 
-let state = { channels: [], current: { channel: -1, url: '' }, pool: [] };
+let state = { channels: [], current: { channel: -1, url: '' }, pool: [], groups: [] };
 let expanded = new Set();
+let picked = new Set();
+let query = '';
+let groupFilter = '';
 const tests = new Map();
 let testJob = null;
 let busyCount = 0;
@@ -421,6 +457,9 @@ function applyStatic() {
   document.querySelectorAll('[data-i18n]').forEach(e => e.textContent = t(e.dataset.i18n));
   $('#subtitle').textContent = t('subtitle', { n: state.channels.length });
   $('#hint').textContent = t('speed_hint');
+  $('#search').placeholder = t('search_ph');
+  $('#search').setAttribute('aria-label', t('search_ph'));
+  $('#groupFilter').setAttribute('aria-label', t('group'));
   $('#lang').value = LANG;
 }
 function testKey(ci, si) { return ci + ':' + si; }
@@ -466,34 +505,76 @@ function sourceRow(ch, ci, s, si) {
 function channelCard(ch, ci) {
   const open = expanded.has(ci);
   const isCurrent = state.current.channel === ci;
-  return '<article class="card' + (isCurrent ? ' current' : '') + (ch.enabled ? '' : ' off') + '">' +
+  const isPicked = picked.has(ch.name);
+  return '<article class="card' + (isCurrent ? ' current' : '') + (ch.enabled ? '' : ' off') + (isPicked ? ' picked' : '') + '">' +
     '<div class="chead">' +
-      '<button class="cname" data-act="expand" data-ci="' + ci + '"><b>' + esc(ch.name) + '</b><span>' + t('sources_count', { n: ch.sources.length }) + (ch.enabled ? '' : ' · ' + t('disabled')) + '</span></button>' +
+      '<input type="checkbox" class="pick" data-pick data-ci="' + ci + '" aria-label="' + esc(t('select')) + '"' + (isPicked ? ' checked' : '') + '>' +
+      '<button class="cname" data-act="expand" data-ci="' + ci + '"><span class="cnameline"><b>' + esc(ch.name) + '</b>' + (isCurrent ? '<span class="tag current">' + t('current') + '</span>' : '') + '</span></button>' +
       '<input type="checkbox" class="switch" data-switch="channel" data-ci="' + ci + '"' + (ch.enabled ? ' checked' : '') + ' aria-label="' + esc(t('channels')) + '">' +
     '</div>' +
     '<div class="badges">' +
-      (isCurrent ? '<span class="tag current">' + t('current') + '</span>' : '') +
+      '<span class="tag">' + esc(normGroup(ch.group) || t('ungrouped')) + '</span>' +
+      (!ch.enabled ? '<span class="tag">' + esc(t('disabled')) + '</span>' : '') +
       (!ch.sources.length ? '<span class="tag bad">' + t('no_sources') + '</span>' : '') +
     '</div>' +
     '<div class="cactions">' +
       '<button class="btn small" data-act="rename" data-ci="' + ci + '">' + t('rename') + '</button>' +
-      '<button class="btn small" data-act="test-channel" data-ci="' + ci + '">' + t('test_channel') + '</button>' +
+      '<button class="btn small" data-act="assign-group" data-ci="' + ci + '">' + t('group') + '</button>' +
       '<button class="btn small icon" data-act="up" data-ci="' + ci + '" aria-label="' + esc(t('up')) + '">↑</button>' +
       '<button class="btn small icon" data-act="down" data-ci="' + ci + '" aria-label="' + esc(t('down')) + '">↓</button>' +
       '<button class="btn small danger" data-act="delete-channel" data-ci="' + ci + '">' + t('delete') + '</button>' +
-      '<button class="btn small link" data-act="expand" data-ci="' + ci + '">' + (open ? t('collapse') : t('expand')) + '</button>' +
+      '<button class="btn small link" data-act="expand" data-ci="' + ci + '">' + (open ? t('collapse') : t('expand')) + '[' + ch.sources.length + ']</button>' +
     '</div>' +
     (open ? '<div class="sources">' + ch.sources.map((s, si) => sourceRow(ch, ci, s, si)).join('') +
       '<button class="btn small" data-act="add-source" data-ci="' + ci + '">+ ' + t('add_source') + '</button>' +
-      '<button class="btn small" data-act="test-all" data-ci="' + ci + '">' + t('test_channel') + '</button>' +
+      '<button class="btn small" data-act="test-all" data-ci="' + ci + '">' + t('test_all') + '</button>' +
       '</div>' : '') +
   '</article>';
 }
+function prunePicked() {
+  const names = new Set(state.channels.map(ch => ch.name));
+  for (const name of [...picked]) if (!names.has(name)) picked.delete(name);
+}
+function pickedIndices() {
+  return state.channels.map((ch, i) => picked.has(ch.name) ? i : -1).filter(i => i >= 0);
+}
+function syncBatch() {
+  const empty = pickedIndices().length === 0;
+  $('#batchdel').disabled = empty;
+  $('#batchgroup').disabled = empty;
+}
+function syncGroupFilter() {
+  if (groupFilter === 'N') {
+    groupFilter = state.channels.some(ch => !normGroup(ch.group)) ? 'N' : '';
+  } else if (groupFilter.startsWith('G:') && !state.groups.includes(groupFilter.slice(2))) {
+    groupFilter = '';
+  }
+  const sel = $('#groupFilter');
+  sel.innerHTML = '<option value="">' + t('all_groups') + '</option>' +
+    '<option value="N">' + t('ungrouped') + '</option>' +
+    state.groups.filter(g => g !== 'null').map(g => '<option value="' + esc('G:' + g) + '">' + esc(g) + '</option>').join('');
+  sel.value = groupFilter;
+}
+function inGroup(ch) {
+  if (!groupFilter) return true;
+  const group = normGroup(ch.group);
+  if (groupFilter === 'N') return !group;
+  return group === groupFilter.slice(2);
+}
 function render() {
   applyStatic();
+  syncGroupFilter();
+  prunePicked();
+  const needle = query.toLowerCase();
+  const shown = state.channels
+    .map((ch, ci) => ({ ch, ci }))
+    .filter(({ ch }) => (!needle || ch.name.toLowerCase().includes(needle)) && inGroup(ch));
   const list = $('#channels');
-  list.innerHTML = state.channels.map(channelCard).join('');
-  $('#empty').hidden = state.channels.length > 0;
+  list.innerHTML = shown.map(({ ch, ci }) => channelCard(ch, ci)).join('');
+  $('#empty').hidden = shown.length > 0;
+  $('#empty b').textContent = t((query || groupFilter) ? 'no_results' : 'no_channels');
+  $('#empty span').textContent = t((query || groupFilter) ? 'no_results_hint' : 'empty_hint');
+  syncBatch();
 }
 $('#lang').innerHTML = LANGS.map(l => '<option value="' + l + '">' + NAMES[l] + '</option>').join('');
 $('#lang').onchange = e => {
@@ -502,7 +583,27 @@ $('#lang').onchange = e => {
   location.replace(u.toString());
 };
 
+$('#search').addEventListener('input', e => {
+  query = e.target.value.trim();
+  render();
+});
+
+$('#groupFilter').addEventListener('change', e => {
+  groupFilter = e.target.value;
+  render();
+});
+
 $('#channels').addEventListener('change', e => {
+  const pick = e.target.closest('[data-pick]');
+  if (pick) {
+    const channel = state.channels[+pick.dataset.ci];
+    if (channel) {
+      if (pick.checked) picked.add(channel.name); else picked.delete(channel.name);
+      pick.closest('.card').classList.toggle('picked', pick.checked);
+      syncBatch();
+    }
+    return;
+  }
   const el = e.target.closest('[data-switch]');
   if (!el) return;
   const ci = +el.dataset.ci;
@@ -522,13 +623,15 @@ $('#channels').addEventListener('click', e => {
     render();
   } else if (actName === 'rename') {
     renameSheet(ci);
+  } else if (actName === 'assign-group') {
+    assignGroupSheet(ci);
   } else if (actName === 'delete-channel') {
     deleteChannelSheet(ci);
   } else if (actName === 'up' && ci > 0) {
     act(() => post('api/channel/move', { from: ci, to: ci - 1 }));
   } else if (actName === 'down' && ci < state.channels.length - 1) {
     act(() => post('api/channel/move', { from: ci, to: ci + 1 }));
-  } else if (actName === 'test-channel' || actName === 'test-all') {
+  } else if (actName === 'test-all') {
     runTest({ channel: ci });
   } else if (actName === 'add-source') {
     sourceSheet(ci);
@@ -588,14 +691,16 @@ $('#add').onclick = () => {
   openSheet(t('add_channel'),
     field('aname', t('name'), '', t('name_ph')) +
     field('aurl', t('first_url'), '', t('url_ph'), 'url') +
-    field('alabel', t('label'), '', t('label_ph')),
+    field('alabel', t('label'), '', t('label_ph')) +
+    '<div class="field"><label for="agroup">' + esc(t('group')) + '</label><select id="agroup">' + groupOptions('') + '</select></div>',
     [
       { label: t('cancel'), fn: closeSheet },
       { label: t('save'), kind: 'primary', fn: async () => {
           const name = $('#aname').value.trim(), url = $('#aurl').value.trim(), label = $('#alabel').value.trim();
+          const group = $('#agroup').value;
           if (!name) return toast(t('no_name'));
           if (!url) return toast(t('no_url'));
-          const r = await act(() => post('api/channel/add', { name, url, label }));
+          const r = await act(() => post('api/channel/add', { name, url, label, group }));
           if (r) closeSheet();
         } }
     ]);
@@ -613,14 +718,118 @@ function renameSheet(ci) {
         } }
     ]);
 }
-function deleteChannelSheet(ci) {
+function groupOptions(selected) {
+  selected = normGroup(selected);
+  return '<option value="">' + esc(t('ungrouped')) + '</option>' + state.groups.map(g =>
+    '<option value="' + esc(g) + '"' + (g === selected ? ' selected' : '') + '>' + esc(g) + '</option>').join('');
+}
+function assignGroupSheet(ci) {
   const ch = state.channels[ci];
-  openSheet(t('delete_channel'),
-    '<p class="note">' + esc(t('delete_channel_q', { name: ch.name })) + '</p><p class="note">' + esc(t('delete_channel_hint')) + '</p>',
+  openSheet(t('assign_group'),
+    '<div class="field"><label for="cgroup">' + esc(t('group')) + '</label><select id="cgroup">' + groupOptions(ch.group) + '</select></div>',
+    [
+      { label: t('cancel'), fn: closeSheet },
+      { label: t('save'), kind: 'primary', fn: async () => {
+          const r = await act(() => post('api/channel/group', { index: ci, group: $('#cgroup').value }));
+          if (r) closeSheet();
+        } }
+    ]);
+}
+function batchDeleteSheet() {
+  const indices = pickedIndices();
+  if (!indices.length) return;
+  openSheet(t('batch_delete'),
+    '<p class="note">' + esc(t('batch_delete_q', { n: indices.length })) + '</p>' +
+    '<p class="note">' + esc(t('delete_channel_hint')) + '</p>' +
+    '<label class="check"><input type="checkbox" id="delpool"><span>' + esc(t('remove_from_pool')) + '</span></label>',
     [
       { label: t('cancel'), fn: closeSheet },
       { label: t('delete'), kind: 'danger', fn: async () => {
-          const r = await act(() => post('api/channel/delete', { index: ci, confirm: '1' }));
+          const r = await act(() => post('api/channel/delete-batch', {
+            indices: indices.join(','), confirm: '1',
+            removeFromPool: $('#delpool').checked ? '1' : '0'
+          }));
+          if (r) { picked.clear(); closeSheet(); render(); }
+        } }
+    ]);
+}
+function batchGroupSheet() {
+  const indices = pickedIndices();
+  if (!indices.length) return;
+  openSheet(t('batch_group'),
+    '<p class="note">' + esc(t('batch_group_note', { n: indices.length })) + '</p>' +
+    '<div class="field"><label for="bgroup">' + esc(t('group')) + '</label><select id="bgroup">' + groupOptions('') + '</select></div>',
+    [
+      { label: t('cancel'), fn: closeSheet },
+      { label: t('save'), kind: 'primary', fn: async () => {
+          const r = await act(() => post('api/channel/group-batch', {
+            indices: indices.join(','), group: $('#bgroup').value
+          }));
+          if (r) { picked.clear(); closeSheet(); render(); }
+        } }
+    ]);
+}
+function groupsSheet() {
+  const rows = state.groups.length ? state.groups.map((g, i) =>
+    '<div class="src"><div class="grow"><b>' + esc(g) + '</b></div><div class="srcacts">' +
+      '<button class="btn small icon" data-gact="up" data-gi="' + i + '"' + (i === 0 ? ' disabled' : '') + ' aria-label="' + esc(t('up')) + '">↑</button>' +
+      '<button class="btn small icon" data-gact="down" data-gi="' + i + '"' + (i === state.groups.length - 1 ? ' disabled' : '') + ' aria-label="' + esc(t('down')) + '">↓</button>' +
+      '<button class="btn small" data-gact="rename" data-gi="' + i + '">' + t('rename') + '</button>' +
+      '<button class="btn small danger" data-gact="delete" data-gi="' + i + '">' + t('delete') + '</button>' +
+    '</div></div>').join('') : '<p class="note">' + esc(t('no_groups')) + '</p>';
+  openSheet(t('manage_groups'),
+    rows + field('gnew', t('add_group'), '', t('group_name_ph')),
+    [
+      { label: t('close'), fn: closeSheet },
+      { label: t('add_group'), kind: 'primary', fn: async () => {
+          const name = $('#gnew').value.trim();
+          if (!name) return toast(t('no_name'));
+          const r = await act(() => post('api/group/add', { name }));
+          if (r) { closeSheet(); groupsSheet(); }
+        } }
+    ]);
+  document.querySelectorAll('#sheetbody [data-gact]').forEach(button => {
+    button.onclick = () => {
+      const index = +button.dataset.gi;
+      if (button.dataset.gact === 'up') act(() => post('api/group/move', { from: index, to: index - 1 })).then(r => { if (r) { closeSheet(); groupsSheet(); } });
+      if (button.dataset.gact === 'down') act(() => post('api/group/move', { from: index, to: index + 1 })).then(r => { if (r) { closeSheet(); groupsSheet(); } });
+      if (button.dataset.gact === 'rename') renameGroupSheet(index);
+      if (button.dataset.gact === 'delete') deleteGroupSheet(index);
+    };
+  });
+}
+function renameGroupSheet(index) {
+  openSheet(t('group_name'), field('grname', t('group_name'), state.groups[index] || '', t('group_name_ph')),
+    [
+      { label: t('cancel'), fn: closeSheet },
+      { label: t('save'), kind: 'primary', fn: async () => {
+          const name = $('#grname').value.trim();
+          if (!name) return toast(t('no_name'));
+          const r = await act(() => post('api/group/rename', { index, name }));
+          if (r) { closeSheet(); groupsSheet(); }
+        } }
+    ]);
+}
+function deleteGroupSheet(index) {
+  openSheet(t('delete_group'),
+    '<p class="note">' + esc(t('delete_group_q', { name: state.groups[index] })) + '</p><p class="note">' + esc(t('delete_group_hint')) + '</p>',
+    [
+      { label: t('cancel'), fn: closeSheet },
+      { label: t('delete'), kind: 'danger', fn: async () => {
+          const r = await act(() => post('api/group/delete', { index, confirm: '1' }));
+          if (r) { closeSheet(); groupsSheet(); }
+        } }
+    ]);
+}
+function deleteChannelSheet(ci) {
+  const ch = state.channels[ci];
+  openSheet(t('delete_channel'),
+    '<p class="note">' + esc(t('delete_channel_q', { name: ch.name })) + '</p><p class="note">' + esc(t('delete_channel_hint')) + '</p>' +
+    '<label class="check"><input type="checkbox" id="delpool"><span>' + esc(t('remove_from_pool')) + '</span></label>',
+    [
+      { label: t('cancel'), fn: closeSheet },
+      { label: t('delete'), kind: 'danger', fn: async () => {
+          const r = await act(() => post('api/channel/delete', { index: ci, confirm: '1', removeFromPool: $('#delpool').checked ? '1' : '0' }));
           if (r) closeSheet();
         } }
     ]);
@@ -628,11 +837,12 @@ function deleteChannelSheet(ci) {
 function deleteSourceSheet(ci, si) {
   const s = state.channels[ci].sources[si];
   openSheet(t('delete_source'),
-    '<p class="note">' + esc(t('delete_source_q')) + '</p><div class="note">' + esc(s.url) + '</div><p class="note">' + esc(t('delete_source_hint')) + '</p>',
+    '<p class="note">' + esc(t('delete_source_q')) + '</p><div class="note">' + esc(s.url) + '</div><p class="note">' + esc(t('delete_source_hint')) + '</p>' +
+    '<label class="check"><input type="checkbox" id="delpool"><span>' + esc(t('remove_from_pool')) + '</span></label>',
     [
       { label: t('cancel'), fn: closeSheet },
       { label: t('delete'), kind: 'danger', fn: async () => {
-          const r = await act(() => post('api/source/delete', { channel: ci, index: si, confirm: '1' }));
+          const r = await act(() => post('api/source/delete', { channel: ci, index: si, confirm: '1', removeFromPool: $('#delpool').checked ? '1' : '0' }));
           if (r) closeSheet();
         } }
     ]);
@@ -725,6 +935,9 @@ async function applyImport() {
   }
 }
 $('#import').onclick = importSheet;
+$('#groups').onclick = groupsSheet;
+$('#batchdel').onclick = batchDeleteSheet;
+$('#batchgroup').onclick = batchGroupSheet;
 
 function jsonSheet() {
   openSheet(t('import_json'),

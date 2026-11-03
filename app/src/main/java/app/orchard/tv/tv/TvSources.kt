@@ -38,6 +38,8 @@ object TvSources {
                     enabled = item.optBoolean("enabled", true),
                     currentSource = item.optInt("currentSource", 0),
                     sources = sources,
+                    group = (if (item.isNull("group")) "" else item.optString("group")).trim()
+                        .takeUnless { it.isEmpty() || it == "null" },
                 )
             }
         }

@@ -48,9 +48,26 @@ class TvStateMachineTest {
     }
 
     @Test fun `back out of fullscreen is the icon, stopped`() {
-        val result = run(full, TvEvent.FullscreenExited)
+        val result = run(full, TvEvent.FullscreenExited(hasChannel = true))
         assertEquals(TvWindow.Collapsed, result.state.window)
         assertEquals(false, result.state.focused)
+        assertEquals(TvEffect.Stop, result.effect)
+    }
+
+    @Test fun `an empty window opens fullscreen for phone setup`() {
+        val result = run(TvState(window = TvWindow.Stopped), TvEvent.WindowSetup)
+        assertEquals(TvWindow.Fullscreen, result.state.window)
+        assertEquals(true, result.state.focused)
+        assertEquals(TvPlayback.Idle, result.state.playback)
+        assertEquals(TvEffect.None, result.effect)
+    }
+
+    @Test fun `back out of an empty fullscreen returns to the placeholder`() {
+        val result = run(
+            TvState(window = TvWindow.Fullscreen, focused = true, playback = TvPlayback.Idle),
+            TvEvent.FullscreenExited(hasChannel = false),
+        )
+        assertEquals(TvWindow.Stopped, result.state.window)
         assertEquals(TvEffect.Stop, result.effect)
     }
 

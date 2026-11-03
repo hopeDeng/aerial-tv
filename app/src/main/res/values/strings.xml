@@ -137,6 +137,8 @@
     <string name="st_names">App Names</string>
     <string name="st_names_focused">Selected App</string>
     <string name="st_names_all">All Apps</string>
+    <string name="st_live_window">Live TV window</string>
+    <string name="st_live_window_hint">Show the live-TV tile on Home. Turn it off for a Home without TV.</string>
     <string name="st_names_hint">Names under every app, or only under the selected one, as on Apple TV. With every name shown, the top row\'s names sit on its glass plate too.</string>
     <string name="ss_kind">Style</string>
     <string name="wp_weather_city">Location</string>
@@ -264,6 +266,10 @@
     <string name="tv_epg_off_air">%1$s  No programme now</string>
     <string name="tv_channel_list">Channels</string>
     <string name="tv_channel_list_n">Channels (%1$d)</string>
+    <string name="tv_group_recent">Recent</string>
+    <string name="tv_group_all">All</string>
+    <string name="tv_group_ungrouped">Ungrouped</string>
+    <string name="tv_group_empty">No channels in this group</string>
     <string name="tv_channel_disabled">Disabled</string>
     <string name="tv_source_list_n">%1$s · %2$d sources</string>
     <string name="tv_source_current">Now</string>

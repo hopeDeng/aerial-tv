@@ -52,12 +52,14 @@ class TvStoreTest {
     @Test fun `a damaged file goes back to the newest backup`() {
         val one = listOf(channel("A", "http://a/1"))
         val two = listOf(channel("A", "http://a/1"), channel("B", "http://b/1"))
-        TvStore.save(context, one, TvStore.poolFromChannels(one), dir)
-        TvStore.save(context, two, TvStore.poolFromChannels(two), dir)
+        val groups = listOf("体育频道", "纪录频道")
+        TvStore.save(context, one, TvStore.poolFromChannels(one), dir, groups)
+        TvStore.save(context, two, TvStore.poolFromChannels(two), dir, groups)
 
         File(dir, TvStore.FILE).writeText("not json")
         val loaded = TvStore.load(context, dir, File(dir, "missing.json"))
         assertEquals(listOf("A"), loaded.channels.map { it.name })
+        assertEquals(groups, loaded.groups)
         assertTrue(File(dir, TvStore.BACKUP_DIR).listFiles()!!.any { it.name.startsWith("corrupt-") })
     }
 
@@ -78,6 +80,55 @@ class TvStoreTest {
         )
         assertEquals(listOf("http://a", "http://b"), merged.map { it.url })
         assertEquals(listOf("first", "B"), merged.map { it.label })
+    }
+
+
+    @Test fun `groups round-trip through the private file and the export`() {
+        val channels = listOf(channel("A", "http://a/1").copy(group = "央视频道"))
+        val pool = TvStore.poolFromChannels(channels)
+        val groups = listOf("央视频道", "卫视频道")
+        TvStore.save(context, channels, pool, dir, groups)
+
+        val loaded = TvStore.load(context, dir, File(dir, "missing.json"))
+        assertEquals(groups, loaded.groups)
+        assertEquals("央视频道", loaded.channels.single().group)
+        assertTrue(File(dir, TvStore.FILE).readText().contains("\"groups\""))
+
+        val imported = TvStore.parseImport(TvStore.encodeExport(channels, pool, groups))!!
+        assertEquals(groups, imported.groups)
+        assertEquals("央视频道", imported.channels.single().group)
+    }
+
+    @Test fun `an old file without groups gets the example groups`() {
+        dir.mkdirs()
+        File(dir, TvStore.FILE).writeText(
+            """{"channels":[{"name":"A","sources":[{"url":"http://a/1"}]}]}""",
+        )
+        val loaded = TvStore.load(context, dir, File(dir, "missing.json"))
+        assertEquals(TvStore.DEFAULT_GROUPS, loaded.groups)
+    }
+
+    @Test fun `an explicit empty group list stays empty`() {
+        val channels = listOf(channel("A", "http://a/1"))
+        TvStore.save(context, channels, TvStore.poolFromChannels(channels), dir, emptyList())
+        val loaded = TvStore.load(context, dir, File(dir, "missing.json"))
+        assertTrue(loaded.groups.isEmpty())
+    }
+
+    @Test fun `group names are trimmed and deduplicated`() {
+        val groups = TvStore.normalizeGroups(listOf(" 央视频道 ", "", "央视频道", "卫视\n频道"))
+        assertEquals(listOf("央视频道", "卫视 频道"), groups)
+    }
+
+    @Test fun `removing sources from the pool keeps URLs another channel still uses`() {
+        val deleting = listOf(TvSource("http://shared", "x", true), TvSource("http://only", "y", true))
+        val remaining = listOf(TvChannel("B", true, 0, listOf(TvSource("http://shared", "x", true))))
+        val pool = deleting + listOf(TvSource("http://other", "z", true))
+        val pooled = TvStore.mergePool(
+            TvStore.removePoolSources(pool, deleting.map { it.url }.toSet()),
+            remaining.flatMap { it.sources },
+        )
+        assertEquals(listOf("http://other", "http://shared"), pooled.map { it.url })
     }
 
     @Test fun `keeps only five backups`() {

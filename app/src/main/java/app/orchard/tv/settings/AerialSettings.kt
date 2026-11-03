@@ -114,6 +114,9 @@ object AerialSettings {
     /** The date and weather over a big clock above the top row, instead of one small line in the corner. */
     var largeClock by mutableStateOf(false); private set
 
+    /** The live-TV window on Home's top right; off for a grid without it. */
+    var showLiveWindow by mutableStateOf(true); private set
+
     /**
      * The moving wallpaper (aerial films, the owner's own videos) plays on the top row whatever the
      * keys do, under a little shade, rather than only once Home has sat still (issues #360, #456).
@@ -195,6 +198,7 @@ object AerialSettings {
         homeColumns = prefs.getInt("home_columns", DEFAULT_HOME_COLUMNS).takeIf { it in HOME_COLUMNS } ?: DEFAULT_HOME_COLUMNS
         clockRight = prefs.getBoolean("clock_right", false)
         largeClock = prefs.getBoolean("large_clock", false)
+        showLiveWindow = prefs.getBoolean("show_live_window", true)
         homePlate = prefs.getBoolean("home_plate", true)
         showAllNames = prefs.getBoolean("show_all_names", false)
         wallpaperAlwaysMoves = prefs.getBoolean("wallpaper_always_moves", false)
@@ -286,6 +290,11 @@ object AerialSettings {
     fun chooseLargeClock(on: Boolean) {
         largeClock = on
         app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit { putBoolean("large_clock", on) }
+    }
+
+    fun chooseShowLiveWindow(on: Boolean) {
+        showLiveWindow = on
+        app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit { putBoolean("show_live_window", on) }
     }
 
     fun chooseShowAllNames(on: Boolean) {

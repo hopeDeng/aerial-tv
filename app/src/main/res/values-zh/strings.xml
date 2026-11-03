@@ -136,6 +136,8 @@
     <string name="st_names">App 名称</string>
     <string name="st_names_focused">只显示选中的</string>
     <string name="st_names_all">全部显示</string>
+    <string name="st_live_window">小窗显示</string>
+    <string name="st_live_window_hint">在主页显示直播电视小窗；关闭后主页不再显示电视。</string>
     <string name="st_names_hint">每个 App 下面都显示名称，或者像 Apple TV 一样只显示选中的。全部显示时，第一排的名称也显示在玻璃底板里。</string>
     <string name="ss_kind">类型</string>
     <string name="wp_weather_city">位置</string>
@@ -263,6 +265,10 @@
     <string name="tv_epg_off_air">%1$s  当前时段无节目</string>
     <string name="tv_channel_list">频道列表</string>
     <string name="tv_channel_list_n">频道列表（%1$d）</string>
+    <string name="tv_group_recent">常看</string>
+    <string name="tv_group_all">全部</string>
+    <string name="tv_group_ungrouped">未分组</string>
+    <string name="tv_group_empty">这个分组还没有频道</string>
     <string name="tv_channel_disabled">停用</string>
     <string name="tv_source_list_n">%1$s · %2$d 个播放源</string>
     <string name="tv_source_current">当前</string>

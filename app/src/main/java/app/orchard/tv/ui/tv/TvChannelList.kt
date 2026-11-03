@@ -5,6 +5,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -25,6 +26,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -46,6 +48,8 @@ import androidx.compose.ui.unit.sp
 import app.orchard.tv.R
 import app.orchard.tv.tv.TvChannel
 import app.orchard.tv.tv.TvController
+import app.orchard.tv.tv.TvGroupFilter
+import app.orchard.tv.tv.tvGroupFilters
 import app.orchard.tv.ui.components.consumeTaps
 import app.orchard.tv.ui.theme.Type
 
@@ -65,24 +69,35 @@ fun TvChannelList(tv: TvController) {
 
     val focus = remember { FocusRequester() }
     val listState = rememberLazyListState()
+    val groupState = rememberLazyListState()
     val current = tv.current?.first ?: -1
+    val filters = tvGroupFilters(tv.groups)
+    val visible = tv.channelsIn(tv.selectedGroup)
     var selected by remember {
-        mutableIntStateOf(if (current in tv.channels.indices) current else 0)
+        mutableIntStateOf(visible.indexOf(current).coerceAtLeast(0))
     }
+    var groupFocused by remember { mutableStateOf(false) }
     BackHandler { tv.closePanels() }
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
 
     val rowPx = with(LocalDensity.current) { RowHeight.roundToPx() }
-    LaunchedEffect(selected, tv.channels.size) {
-        if (tv.channels.isEmpty()) return@LaunchedEffect
-        listState.scrollToItem(selected.coerceIn(0, tv.channels.lastIndex), scrollOffset = -2 * rowPx)
+    LaunchedEffect(tv.selectedGroup) {
+        selected = visible.indexOf(current).coerceAtLeast(0)
+        if (visible.isNotEmpty()) {
+            listState.scrollToItem(selected.coerceIn(0, visible.lastIndex), scrollOffset = -2 * rowPx)
+        }
+        groupState.animateScrollToItem(filters.indexOf(tv.selectedGroup).coerceAtLeast(0))
+    }
+    LaunchedEffect(selected, visible.size) {
+        if (visible.isEmpty()) return@LaunchedEffect
+        listState.scrollToItem(selected.coerceIn(0, visible.lastIndex), scrollOffset = -2 * rowPx)
     }
 
     Box(Modifier.fillMaxSize()) {
         Box(
             Modifier
                 .align(Alignment.CenterStart)
-                .width(280.dp)
+                .width(400.dp)
                 .fillMaxHeight()
                 .background(PanelFill)
                 .focusRequester(focus)
@@ -90,22 +105,37 @@ fun TvChannelList(tv: TvController) {
                 .consumeTaps()
                 .onPreviewKeyEvent { event ->
                     if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                    val count = tv.channels.size
+                    val count = visible.size
+                    fun moveGroup(step: Int) {
+                        val index = filters.indexOf(tv.selectedGroup).coerceAtLeast(0)
+                        tv.selectGroup(filters[(index + step + filters.size) % filters.size])
+                    }
                     when (event.nativeKeyEvent.keyCode) {
                         NativeKeyEvent.KEYCODE_DPAD_UP,
                         NativeKeyEvent.KEYCODE_CHANNEL_UP -> {
-                            if (count > 0) selected = (selected - 1 + count) % count
+                            if (groupFocused) moveGroup(-1)
+                            else if (count > 0) selected = (selected - 1 + count) % count
                             true
                         }
                         NativeKeyEvent.KEYCODE_DPAD_DOWN,
                         NativeKeyEvent.KEYCODE_CHANNEL_DOWN -> {
-                            if (count > 0) selected = (selected + 1) % count
+                            if (groupFocused) moveGroup(1)
+                            else if (count > 0) selected = (selected + 1) % count
+                            true
+                        }
+                        NativeKeyEvent.KEYCODE_DPAD_LEFT -> {
+                            if (!groupFocused) groupFocused = true
+                            true
+                        }
+                        NativeKeyEvent.KEYCODE_DPAD_RIGHT -> {
+                            if (groupFocused) groupFocused = false
                             true
                         }
                         NativeKeyEvent.KEYCODE_DPAD_CENTER,
                         NativeKeyEvent.KEYCODE_ENTER,
                         NativeKeyEvent.KEYCODE_NUMPAD_ENTER -> {
-                            if (selected in tv.channels.indices) tv.playChannel(selected)
+                            if (groupFocused) groupFocused = false
+                            else visible.getOrNull(selected)?.let { tv.playChannel(it) }
                             true
                         }
                         NativeKeyEvent.KEYCODE_MENU -> {
@@ -120,34 +150,96 @@ fun TvChannelList(tv: TvController) {
                     }
                 },
         ) {
-            Column(
+            Row(
                 Modifier
                     .fillMaxSize()
                     .padding(top = 18.dp, bottom = 18.dp),
             ) {
-                BasicText(
-                    stringResource(R.string.tv_channel_list_n, tv.channels.size),
-                    style = Type.Title.copy(fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White),
-                    modifier = Modifier.padding(start = 12.dp, top = 9.dp, end = 12.dp, bottom = 5.dp),
-                )
                 LazyColumn(
-                    state = listState,
+                    state = groupState,
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
+                        .width(116.dp)
+                        .fillMaxHeight(),
+                    verticalArrangement = Arrangement.Center,
                 ) {
-                    itemsIndexed(tv.channels) { index, channel ->
-                        ChannelRow(
-                            index = index,
-                            channel = channel,
-                            current = index == current,
-                            selected = index == selected,
+                    itemsIndexed(filters) { _, filter ->
+                        GroupRow(
+                            label = groupLabel(filter),
+                            selected = filter == tv.selectedGroup,
+                            focused = groupFocused,
                         )
+                    }
+                }
+                Box(
+                    Modifier
+                        .width(0.5.dp)
+                        .fillMaxHeight()
+                        .background(Color.White.copy(alpha = 0.18f)),
+                )
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                ) {
+                    BasicText(
+                        stringResource(R.string.tv_channel_list_n, visible.size),
+                        style = Type.Title.copy(fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White),
+                        modifier = Modifier.padding(start = 12.dp, top = 9.dp, end = 12.dp, bottom = 5.dp),
+                    )
+                    if (visible.isEmpty()) {
+                        BasicText(
+                            stringResource(R.string.tv_group_empty),
+                            style = Type.Body.copy(fontSize = 18.sp, color = Color.White.copy(alpha = 0.65f)),
+                            modifier = Modifier.padding(start = 12.dp, top = 12.dp, end = 12.dp),
+                        )
+                    } else {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                        ) {
+                            itemsIndexed(visible) { position, index ->
+                                ChannelRow(
+                                    index = index,
+                                    channel = tv.channels[index],
+                                    current = index == current,
+                                    selected = position == selected && !groupFocused,
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun groupLabel(filter: TvGroupFilter): String = when (filter) {
+    TvGroupFilter.Recent -> stringResource(R.string.tv_group_recent)
+    TvGroupFilter.All -> stringResource(R.string.tv_group_all)
+    TvGroupFilter.Ungrouped -> stringResource(R.string.tv_group_ungrouped)
+    is TvGroupFilter.Named -> filter.name
+}
+
+@Composable
+private fun GroupRow(label: String, selected: Boolean, focused: Boolean) {
+    val accent = if (focused) Amber else CurrentGreen
+    BasicText(
+        label,
+        style = Type.Body.copy(
+            fontSize = 17.sp,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+            color = if (selected) accent else Color.White.copy(alpha = 0.72f),
+        ),
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(if (selected) accent.copy(alpha = 0.14f) else Color.Transparent)
+            .padding(horizontal = 8.dp, vertical = 7.dp),
+    )
 }
 
 @Composable

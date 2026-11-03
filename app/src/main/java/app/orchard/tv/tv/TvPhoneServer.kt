@@ -63,7 +63,7 @@ class TvPhoneServer private constructor(
         )
         session.method == Method.POST && path == "/api/channel/add" -> {
             val f = form(session)
-            edit { channels, pool ->
+            edit { channels, pool, groups ->
                 val name = f["name"].orEmpty().trim()
                 val url = f["url"].orEmpty().trim()
                 val label = f["label"].orEmpty().trim().ifBlank { "manual" }
@@ -72,7 +72,9 @@ class TvPhoneServer private constructor(
                     !url.startsWith("http", ignoreCase = true) -> "bad url"
                     TvImport.findByName(channels, name) != null -> "channel exists"
                     else -> {
-                        channels += TvChannel(name, true, 0, listOf(TvSource(url, label, true)))
+                        val group = f["group"].orEmpty().trim().ifBlank { null }
+                        if (group != null && group !in groups) return@edit "bad group"
+                        channels += TvChannel(name, true, 0, listOf(TvSource(url, label, true)), group)
                         pool += TvSource(url, label, true)
                         null
                     }
@@ -81,7 +83,7 @@ class TvPhoneServer private constructor(
         }
         session.method == Method.POST && path == "/api/channel/rename" -> {
             val f = form(session)
-            edit { channels, _ ->
+            edit { channels, _, _ ->
                 val index = f["index"]?.toIntOrNull()
                 val name = f["name"].orEmpty().trim()
                 val channel = index?.let { channels.getOrNull(it) }
@@ -99,7 +101,7 @@ class TvPhoneServer private constructor(
         }
         session.method == Method.POST && path == "/api/channel/move" -> {
             val f = form(session)
-            edit { channels, _ ->
+            edit { channels, _, _ ->
                 val from = f["from"]?.toIntOrNull()
                 val to = f["to"]?.toIntOrNull()
                 when {
@@ -115,7 +117,7 @@ class TvPhoneServer private constructor(
         }
         session.method == Method.POST && path == "/api/channel/enable" -> {
             val f = form(session)
-            edit { channels, _ ->
+            edit { channels, _, _ ->
                 val index = f["index"]?.toIntOrNull()
                 val channel = index?.let { channels.getOrNull(it) } ?: return@edit "bad channel"
                 channels[index] = channel.copy(enabled = f["enabled"] == "1")
@@ -124,19 +126,23 @@ class TvPhoneServer private constructor(
         }
         session.method == Method.POST && path == "/api/channel/delete" -> {
             val f = form(session)
-            edit { channels, pool ->
+            edit { channels, pool, groups ->
                 val index = f["index"]?.toIntOrNull()
                 val channel = index?.let { channels.getOrNull(it) } ?: return@edit "bad channel"
                 if (f["confirm"] != "1") return@edit "confirm required"
                 channels.removeAt(index)
-                pool += channel.sources
+                if (f["removeFromPool"] == "1") {
+                    pool.removeAll { it.url in channel.sources.map { source -> source.url }.toSet() }
+                } else {
+                    pool += channel.sources
+                }
                 null
             }
         }
         session.method == Method.POST && path == "/api/source/test-play" -> testPlay(session)
         session.method == Method.POST && path == "/api/source/add" -> {
             val f = form(session)
-            edit { channels, pool ->
+            edit { channels, pool, groups ->
                 val channelIndex = f["channel"]?.toIntOrNull()
                 val channel = channelIndex?.let { channels.getOrNull(it) } ?: return@edit "bad channel"
                 val url = f["url"].orEmpty().trim()
@@ -154,7 +160,7 @@ class TvPhoneServer private constructor(
         }
         session.method == Method.POST && path == "/api/source/move" -> {
             val f = form(session)
-            edit { channels, _ ->
+            edit { channels, _, _ ->
                 val channelIndex = f["channel"]?.toIntOrNull()
                 val from = f["from"]?.toIntOrNull()
                 val to = f["to"]?.toIntOrNull()
@@ -173,7 +179,7 @@ class TvPhoneServer private constructor(
         }
         session.method == Method.POST && path == "/api/source/enable" -> {
             val f = form(session)
-            edit { channels, _ ->
+            edit { channels, _, _ ->
                 val channelIndex = f["channel"]?.toIntOrNull()
                 val sourceIndex = f["index"]?.toIntOrNull()
                 val channel = channelIndex?.let { channels.getOrNull(it) } ?: return@edit "bad channel"
@@ -186,7 +192,7 @@ class TvPhoneServer private constructor(
         }
         session.method == Method.POST && path == "/api/source/delete" -> {
             val f = form(session)
-            edit { channels, pool ->
+            edit { channels, pool, groups ->
                 val channelIndex = f["channel"]?.toIntOrNull()
                 val sourceIndex = f["index"]?.toIntOrNull()
                 val channel = channelIndex?.let { channels.getOrNull(it) } ?: return@edit "bad channel"
@@ -199,19 +205,106 @@ class TvPhoneServer private constructor(
                 else if (channel.currentSource > sourceIndex) channel.currentSource - 1
                 else channel.currentSource
                 channels[channelIndex] = channel.copy(sources = sources, currentSource = current.coerceAtLeast(0))
-                pool += source
+                if (f["removeFromPool"] == "1") pool.removeAll { it.url == source.url } else pool += source
                 null
             }
         }
         session.method == Method.POST && path == "/api/source/current" -> {
             val f = form(session)
-            edit { channels, _ ->
+            edit { channels, _, _ ->
                 val channelIndex = f["channel"]?.toIntOrNull()
                 val sourceIndex = f["index"]?.toIntOrNull()
                 val channel = channelIndex?.let { channels.getOrNull(it) } ?: return@edit "bad channel"
                 val source = sourceIndex?.let { channel.sources.getOrNull(it) } ?: return@edit "bad source"
                 if (!source.enabled) return@edit "source disabled"
                 channels[channelIndex] = channel.copy(currentSource = sourceIndex)
+                null
+            }
+        }
+        session.method == Method.POST && path == "/api/channel/group" -> {
+            val f = form(session)
+            edit { channels, _, groups ->
+                val index = f["index"]?.toIntOrNull()
+                val channel = index?.let { channels.getOrNull(it) } ?: return@edit "bad channel"
+                val group = f["group"].orEmpty().trim().ifBlank { null }
+                if (group != null && group !in groups) return@edit "bad group"
+                channels[index] = channel.copy(group = group)
+                null
+            }
+        }
+        session.method == Method.POST && path == "/api/channel/delete-batch" -> {
+            val f = form(session)
+            edit { channels, pool, _ ->
+                if (f["confirm"] != "1") return@edit "confirm required"
+                val indices = batchIndices(f["indices"], channels.size) ?: return@edit "bad channel"
+                val removed = indices.map { channels[it] }
+                indices.sortedDescending().forEach { channels.removeAt(it) }
+                if (f["removeFromPool"] == "1") {
+                    val urls = removed.flatMap { channel -> channel.sources.map { it.url } }.toSet()
+                    pool.removeAll { it.url in urls }
+                } else {
+                    removed.forEach { pool += it.sources }
+                }
+                null
+            }
+        }
+        session.method == Method.POST && path == "/api/channel/group-batch" -> {
+            val f = form(session)
+            edit { channels, _, groups ->
+                val indices = batchIndices(f["indices"], channels.size) ?: return@edit "bad channel"
+                val group = f["group"].orEmpty().trim().ifBlank { null }
+                if (group != null && group !in groups) return@edit "bad group"
+                indices.forEach { channels[it] = channels[it].copy(group = group) }
+                null
+            }
+        }
+        session.method == Method.POST && path == "/api/group/add" -> {
+            val f = form(session)
+            edit { _, _, groups ->
+                val name = TvStore.normalizeGroups(listOf(f["name"].orEmpty())).firstOrNull()
+                    ?: return@edit "missing name"
+                if (name in groups) return@edit "group exists"
+                groups += name
+                null
+            }
+        }
+        session.method == Method.POST && path == "/api/group/rename" -> {
+            val f = form(session)
+            edit { channels, _, groups ->
+                val index = f["index"]?.toIntOrNull()
+                val old = index?.let { groups.getOrNull(it) } ?: return@edit "bad group"
+                val name = TvStore.normalizeGroups(listOf(f["name"].orEmpty())).firstOrNull()
+                    ?: return@edit "missing name"
+                if (name != old && name in groups) return@edit "group exists"
+                groups[index] = name
+                channels.indices.forEach { i ->
+                    if (channels[i].group == old) channels[i] = channels[i].copy(group = name)
+                }
+                null
+            }
+        }
+        session.method == Method.POST && path == "/api/group/delete" -> {
+            val f = form(session)
+            edit { channels, _, groups ->
+                if (f["confirm"] != "1") return@edit "confirm required"
+                val index = f["index"]?.toIntOrNull()
+                val name = index?.let { groups.getOrNull(it) } ?: return@edit "bad group"
+                groups.removeAt(index)
+                channels.indices.forEach { i ->
+                    if (channels[i].group == name) channels[i] = channels[i].copy(group = null)
+                }
+                null
+            }
+        }
+        session.method == Method.POST && path == "/api/group/move" -> {
+            val f = form(session)
+            edit { _, _, groups ->
+                val from = f["from"]?.toIntOrNull()
+                val to = f["to"]?.toIntOrNull()
+                if (from == null || to == null || from !in groups.indices || to !in groups.indices) {
+                    return@edit "bad index"
+                }
+                if (from != to) groups.add(to, groups.removeAt(from))
                 null
             }
         }
@@ -223,7 +316,18 @@ class TvPhoneServer private constructor(
         else -> text(Response.Status.NOT_FOUND, "Not found")
     }
 
+    /** Comma-separated channel indices from a batch action, unique and all inside [count]. */
+    private fun batchIndices(raw: String?, count: Int): List<Int>? {
+        val indices = raw.orEmpty().split(',')
+            .mapNotNull { it.trim().toIntOrNull() }
+            .distinct()
+        if (indices.isEmpty() || indices.any { it !in 0 until count }) return null
+        return indices
+    }
+
     private fun channels(): List<TvChannel> = onMain { controller?.channels ?: emptyList() }
+
+    private fun groups(): List<String> = onMain { controller?.groups ?: emptyList() }
 
     private fun current(): Pair<Int, TvSource>? = onMain { controller?.current }
 
@@ -241,6 +345,7 @@ class TvPhoneServer private constructor(
             .put("channels", JSONArray().apply {
                 channels.forEach { put(channelJson(it)) }
             })
+            .put("groups", JSONArray().apply { groups().forEach { put(it) } })
             .put("current", JSONObject().apply {
                 put("channel", current?.first ?: -1)
                 put("url", current?.second?.url.orEmpty())
@@ -257,6 +362,7 @@ class TvPhoneServer private constructor(
         .put("name", channel.name)
         .put("enabled", channel.enabled)
         .put("currentSource", channel.currentSource)
+        .put("group", channel.group ?: JSONObject.NULL)
         .put("sources", JSONArray().apply {
             channel.sources.forEach { put(sourceJson(it)) }
         })
@@ -271,15 +377,16 @@ class TvPhoneServer private constructor(
      * error message, or null after changing the list.
      */
     @Synchronized
-    private fun edit(block: (MutableList<TvChannel>, MutableList<TvSource>) -> String?): Response {
+    private fun edit(block: (MutableList<TvChannel>, MutableList<TvSource>, MutableList<String>) -> String?): Response {
         val channels = channels().toMutableList()
         val pool = pool().toMutableList()
-        val error = block(channels, pool)
+        val groups = groups().toMutableList()
+        val error = block(channels, pool, groups)
         if (error != null) return errorResponse(Response.Status.BAD_REQUEST, error)
         val merged = TvStore.mergePool(pool, channels.flatMap { it.sources })
-        TvStore.save(context, channels, merged)
+        TvStore.save(context, channels, merged, groups = groups)
         poolCache = merged
-        onMain { controller?.applyChannels(channels) }
+        onMain { controller?.applyChannels(channels, groups) }
         return json(state())
     }
 
@@ -320,10 +427,11 @@ class TvPhoneServer private constructor(
         val entries = pending.entries.filterIndexed { index, _ -> index in selected }
         val result = TvImport.merge(channels(), entries, pending.label)
         val mergedPool = TvStore.mergePool(pool(), entries.map { TvSource(it.url, pending.label, true) })
-        TvStore.save(context, result.channels, mergedPool)
+        val groups = groups()
+        TvStore.save(context, result.channels, mergedPool, groups = groups)
         poolCache = mergedPool
         pendingImports.remove(id)
-        onMain { controller?.applyChannels(result.channels) }
+        onMain { controller?.applyChannels(result.channels, groups) }
         return json(state()
             .put("addedChannels", result.addedChannels)
             .put("addedSources", result.addedSources)
@@ -339,9 +447,9 @@ class TvPhoneServer private constructor(
         }
         val (text, _) = readImport(session, "json") ?: return errorResponse(Response.Status.BAD_REQUEST, "no json")
         val imported = TvStore.parseImport(text) ?: return errorResponse(Response.Status.BAD_REQUEST, "bad json")
-        TvStore.save(context, imported.channels, imported.pool)
+        TvStore.save(context, imported.channels, imported.pool, groups = imported.groups)
         poolCache = imported.pool
-        onMain { controller?.applyChannels(imported.channels) }
+        onMain { controller?.applyChannels(imported.channels, imported.groups) }
         return json(state())
     }
 

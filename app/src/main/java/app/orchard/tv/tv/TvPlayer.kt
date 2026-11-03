@@ -24,6 +24,8 @@ class TvPlayer(context: Context) {
     private var usingExo = false
     private var currentUrl: String? = null
     private var fallbackTried = false
+    /** Whether an engine has the URL in hand; a surface arriving for the first time is not a restart. */
+    private var started = false
 
     /** The URL the decoder was last given, or null when it was stopped. */
     val playingUrl: String? get() = currentUrl
@@ -37,7 +39,7 @@ class TvPlayer(context: Context) {
                 onVideoStats?.invoke(null)
                 DiagLog.i("tv: vlc failed ($reason) -> exo fallback")
                 switchToExo()
-                currentUrl?.let { exo.play(it) }
+                currentUrl?.let { start(it) }
             } else {
                 onFailed?.invoke(reason)
             }
@@ -84,9 +86,17 @@ class TvPlayer(context: Context) {
         // its output and the screen stays black.
         val url = currentUrl
         if (replay && url != null && previous !== view) {
-            DiagLog.i("tv: view swap, restarting playback")
-            if (usingExo) ensureExo().play(url) else vlc.play(url)
+            // The slot's view is released before the fullscreen one attaches, so a first surface and
+            // a swap cannot be told apart here: only a stream already under way makes this a restart.
+            if (started) DiagLog.i("tv: view swap, restarting playback")
+            start(url)
         }
+    }
+
+    /** Hands the URL to the engine that carries it, and remembers that playback is under way. */
+    private fun start(url: String) {
+        started = true
+        if (usingExo) ensureExo().play(url) else vlc.play(url)
     }
 
     fun detach(view: TextureView) {
@@ -102,19 +112,15 @@ class TvPlayer(context: Context) {
             currentUrl = url
             fallbackTried = false
         }
-        if (!vlc.available) {
-            usingExo = true
-            ensureExo().play(url)
-            return
-        }
-        if (fallbackTried) {
-            usingExo = true
-            ensureExo().play(url)
-            return
-        }
-        // A new URL gets a fresh try on LibVLC even if the previous one needed the fallback.
-        switchToVlc()
-        vlc.play(url)
+        // Which engine carries it is decided here, before the surface: a new URL gets a fresh try on
+        // LibVLC even if the previous one needed the fallback.
+        val onExo = !vlc.available || fallbackTried
+        if (onExo) usingExo = true else switchToVlc()
+        // With no view the play waits for the surface. Handing the URL to an engine that has nowhere
+        // to draw opened every stream twice per entry, the restart 140 ms to 1.9 s behind it
+        // (Skyworth 8N07_J9000, 2026-10-29), since attach restarts on the view it is given anyway.
+        if (view == null) return
+        start(url)
     }
 
     fun pause() {
@@ -130,6 +136,7 @@ class TvPlayer(context: Context) {
         vlc.stop()
         currentUrl = null
         fallbackTried = false
+        started = false
         onVideoStats?.invoke(null)
         onPlaybackChanged?.invoke(TvPlayback.Idle)
     }

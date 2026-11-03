@@ -129,6 +129,8 @@
     <string name="st_names">Названия приложений</string>
     <string name="st_names_focused">Выбранное приложение</string>
     <string name="st_names_all">Все приложения</string>
+    <string name="st_live_window">Окно ТВ</string>
+    <string name="st_live_window_hint">Показывать окно прямого эфира на главном экране.</string>
     <string name="st_names_hint">Названия под каждым приложением или только под выбранным, как на Apple TV.</string>
     <string name="ss_kind">Вид</string>
     <string name="wp_weather_city">Местоположение</string>
@@ -256,6 +258,10 @@
     <string name="tv_epg_off_air">%1$s  Сейчас программы нет</string>
     <string name="tv_channel_list">Каналы</string>
     <string name="tv_channel_list_n">Каналы (%1$d)</string>
+    <string name="tv_group_recent">Недавние</string>
+    <string name="tv_group_all">Все</string>
+    <string name="tv_group_ungrouped">Без группы</string>
+    <string name="tv_group_empty">В этой группе пока нет каналов</string>
     <string name="tv_channel_disabled">Отключён</string>
     <string name="tv_source_list_n">%1$s · источников: %2$d</string>
     <string name="tv_source_current">Сейчас</string>
