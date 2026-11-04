@@ -708,8 +708,8 @@ private val HumidityEdge = Color(0x6600E5CC)
 
 /**
  * Home's large clock after arclauncher: the time in light digits, the date and lunar date under it,
- * then the weather: icon, temperature and condition, the city with a humidity capsule, then
- * tomorrow. The screensaver keeps [ShelfClock]; this one only stands on Home.
+ * then the weather: icon beside the city with a humidity capsule over the temperature and
+ * condition, then tomorrow. The screensaver keeps [ShelfClock]; this one only stands on Home.
  */
 @Composable
 fun HomeShelfClock(
@@ -776,7 +776,8 @@ fun HomeShelfClock(
     }
 }
 
-/** The weather under [HomeShelfClock], laid out as arclauncher's HomeClockWeather. */
+/** The weather under [HomeShelfClock]: the icon beside two lines as tall as it, the city with its
+ *  humidity over the temperature and condition, and tomorrow under it. */
 @Composable
 private fun HomeWeather(
     w: WeatherNow,
@@ -785,32 +786,39 @@ private fun HomeWeather(
     main: Color,
 ) {
     val place = Weather.place?.takeIf { it.length <= 12 } ?: "--"
-    Column(Modifier.padding(top = 9.dp)) {
+    Column(
+        Modifier.padding(top = 9.dp),
+        verticalArrangement = Arrangement.spacedBy((-10).dp),
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             GlyphIcon(glyphFor(w), main, 60.dp, Modifier.padding(end = 15.dp))
-            BasicText(
-                "${w.celsius}°",
-                style = Type.HomeWeatherTemp.copy(color = main, shadow = shadow),
-            )
-            BasicText(
-                stringResource(conditionName(w.kind)),
-                style = Type.HomeWeatherDetail.copy(color = detail, shadow = shadow),
-                modifier = Modifier.padding(start = 9.dp),
-            )
-        }
-        Row(Modifier.padding(top = 4.5.dp), verticalAlignment = Alignment.CenterVertically) {
-            BasicText(place, style = Type.HomeWeatherMeta.copy(color = detail, shadow = shadow))
-            w.humidity?.let { humidity ->
-                BasicText(
-                    stringResource(R.string.weather_humidity, humidity),
-                    style = Type.HomeWeatherPill.copy(color = detail),
-                    modifier = Modifier
-                        .padding(start = 9.dp)
-                        .clip(RoundedCornerShape(50))
-                        .background(HumidityGlass)
-                        .border(1.dp, HumidityEdge, RoundedCornerShape(50))
-                        .padding(horizontal = 7.5.dp, vertical = 1.5.dp),
-                )
+            Column(Modifier.height(40.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    BasicText(place, style = Type.HomeWeatherMeta.copy(color = detail, shadow = shadow))
+                    w.humidity?.let { humidity ->
+                        BasicText(
+                            stringResource(R.string.weather_humidity, humidity),
+                            style = Type.HomeWeatherPill.copy(color = detail),
+                            modifier = Modifier
+                                .padding(start = 9.dp)
+                                .clip(RoundedCornerShape(50))
+                                .background(HumidityGlass)
+                                .border(1.dp, HumidityEdge, RoundedCornerShape(50))
+                                .padding(horizontal = 7.5.dp, vertical = 1.5.dp),
+                        )
+                    }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    BasicText(
+                        "${w.celsius}°",
+                        style = Type.HomeWeatherTemp.copy(color = main, shadow = shadow),
+                    )
+                    BasicText(
+                        stringResource(conditionName(w.kind)),
+                        style = Type.HomeWeatherDetail.copy(color = detail, shadow = shadow),
+                        modifier = Modifier.padding(start = 9.dp),
+                    )
+                }
             }
         }
         val tomorrow = w.tomorrow

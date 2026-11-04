@@ -82,6 +82,7 @@ import app.orchard.tv.ui.control.ControlCenter
 import app.orchard.tv.ui.wallpaper.SheetCovers
 import app.orchard.tv.ui.wallpaper.WallpaperSheet
 import app.orchard.tv.tv.TvController
+import app.orchard.tv.tv.TvWindow as TvWindowState
 import app.orchard.tv.ui.tv.TvWindow
 import app.orchard.tv.ui.tv.tvSlotGeometry
 import app.orchard.tv.ui.tv.tvSlotTop
@@ -495,13 +496,6 @@ fun HomeScreen(
             vm.homeResetPending = false
         }
     }
-    // The slot let go of the screen: Back out of fullscreen. Home takes the focus onto the tile the
-    // slot's own Up/Down leads to, so the remote never lands on nothing.
-    LaunchedEffect(tv.releaseFocus) {
-        if (tv.releaseFocus == 0 || !onHome) return@LaunchedEffect
-        withFrameNanos { }
-        focusApp(topRowEnd)
-    }
     // The city picker was opened from the weather line: closing it goes back there, not to a tile.
     var cityWasOpen by remember { mutableStateOf(false) }
     LaunchedEffect(tv.cityPickerOpen) {
@@ -548,6 +542,11 @@ fun HomeScreen(
                     return@onPreviewKeyEvent true
                 }
                 if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                // Fullscreen is the slot's own control now (see TvWindow), and Home lies under the
+                // running picture: none of Home's pill rules below may take Menu, the gear key or
+                // the input key from it. While fullscreen was a separate page these keys never even
+                // reached Home, since that page is not a descendant of this Box.
+                if (tv.window == TvWindowState.Fullscreen) return@onPreviewKeyEvent false
                 when (e.nativeKeyEvent.keyCode) {
                     NativeKeyEvent.KEYCODE_MENU -> {
                         if (kidsLock != null) return@onPreviewKeyEvent true
@@ -990,7 +989,9 @@ fun HomeScreen(
         }
 
         // The live slot, under the pill and in line with the plate: an icon until focus opens it.
-        if (slotShown) {
+        // Fullscreen keeps the slot subtree mounted even when showLiveWindow is off, so the one
+        // surface never dies: the mode switch stays pure geometry.
+        if (slotShown || tv.window == TvWindowState.Fullscreen) {
             val geometry = tvSlotGeometry(
                 screenW = metrics.screenW,
                 screenH = metrics.screenH,
@@ -1006,21 +1007,30 @@ fun HomeScreen(
                 tv = tv,
                 geometry = geometry,
                 focusRequester = windowRequester,
-                enabled = onHome,
+                // Fullscreen is the slot's own control now, so it must stay focusable when Home
+                // itself is not interactive (an overlay or the kids lock came over it): Back out
+                // fullscreen used to reach the grid, and the channel keys used to work there.
+                enabled = onHome || tv.window == TvWindowState.Fullscreen,
                 onUp = { runCatching { pillRequester.requestFocus() } },
                 onDown = { focusApp(topRowEnd) },
                 onLeft = if (weatherControls != null) { { runCatching { weatherRequester.requestFocus() } } } else null,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     // Part of Home, not a layer over it: it goes up with the grid (see the offset the
-                    // grid itself takes), so scrolling down takes the icon and the window away.
-                    .offset { IntOffset(0, -scroll.value.roundToInt()) }
-                    .graphicsLayer { alpha = if (overlay is Overlay.ControlCenter) 0f else 1f },
+                    // grid itself takes), so scrolling down takes the icon and the window away. In
+                    // fullscreen the surface owns the whole screen, so neither the scroll offset nor
+                    // the Control Center fade may touch it — that would drag or blank the picture.
+                    .then(
+                        if (tv.window == TvWindowState.Fullscreen) Modifier else Modifier
+                            .offset { IntOffset(0, -scroll.value.roundToInt()) }
+                            .graphicsLayer { alpha = if (overlay is Overlay.ControlCenter) 0f else 1f },
+                    ),
             )
         }
 
         AnimatedVisibility(
-            visible = moving != null,
+            // Drawn after the slot in the same Box: in fullscreen it would paint over the picture.
+            visible = moving != null && tv.window != TvWindowState.Fullscreen,
             enter = fadeIn(tween(200, easing = Motion.EaseOut)) + slideInVertically(tween(260, easing = Motion.EaseOut)) { it / 2 },
             exit = fadeOut(tween(150, easing = Motion.EaseOut)) + slideOutVertically(tween(150, easing = Motion.EaseOut)) { it / 2 },
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 28.dp),
@@ -1164,7 +1174,10 @@ fun HomeScreen(
             if (kidsLock != null && vm.overlay !is Overlay.Pin) vm.overlay = Overlay.None
         }
         KidsLockScreen(
-            lock = kidsLock,
+            // The lock used to sit under fullscreen, which drew above Home: live TV stayed on screen
+            // and Back still left it. The slot's surface is part of Home now, so the lock would
+            // cover it and its own BackHandler would trap fullscreen.
+            lock = if (tv.window == TvWindowState.Fullscreen) null else kidsLock,
             pinOpen = overlay is Overlay.Pin,
             onParent = { right -> vm.overlay = Overlay.Pin(PinMode.Verify) { vm.overlay = Overlay.None; right() } },
             onLeave = { Restricted.suspend(); KidsWatch.poke() },

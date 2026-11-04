@@ -139,6 +139,12 @@ internal class ExoPlayerTvPlayer(context: Context) : TvVideoPlayer {
         player.setVideoSurface(created)
     }
 
+    override fun resize(view: TextureView) {
+        // Nothing to re-negotiate: the decoder writes frames at the stream's own size and TextureView
+        // scales its texture onto whatever the view became, so the picture follows the morph by itself.
+        // (Media3 1.8 has no setVideoSurfaceSize on Player; that was only ever for a SurfaceHolder.)
+    }
+
     override fun detach(view: TextureView) {
         if (attachedView !== view) return
         attachedView = null

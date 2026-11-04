@@ -63,6 +63,9 @@ fun Modifier.dismissOnTap(onDismiss: () -> Unit): Modifier = pointerInput(Unit) 
  * A tap (touch screen or mouse, issue #60) does the same: it focuses the control and fires when the
  * finger lifts. Touches already go only to the control they began on, and a drag that turns into a
  * scroll cancels the tap.
+ *
+ * A `focusedScale` of 1f or less means the control does not scale at all: focus and press both stay
+ * at 1f, for controls that fill the screen and would show gaps at the edges if they ever shrank.
  */
 @Composable
 fun Pressable(
@@ -83,6 +86,7 @@ fun Pressable(
     val scale by animateFloatAsState(
         targetValue = when {
             reduced -> 1f
+            focusedScale <= 1f -> 1f
             state.pressed -> focusedScale - 0.05f
             state.focused -> focusedScale
             else -> 1f

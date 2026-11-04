@@ -16,6 +16,10 @@ internal interface TvVideoPlayer {
 
     fun attach(view: TextureView)
     fun detach(view: TextureView)
+
+    /** The view changed size under a live stream (the slot's morph); re-negotiate the output. */
+    fun resize(view: TextureView)
+
     fun play(url: String)
     fun pause()
     fun resume()

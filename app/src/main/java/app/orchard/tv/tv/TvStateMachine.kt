@@ -43,7 +43,9 @@ data class TvTransition(val state: TvState, val effect: TvEffect)
 object TvStateMachine {
     fun reduce(state: TvState, event: TvEvent): TvTransition = when (event) {
         is TvEvent.WindowGotFocus -> when {
-            state.window == TvWindow.Fullscreen -> keep(state)
+            // The slot stays composed through fullscreen, so real focus returns when a
+            // fullscreen panel closes: record it, playback is already where it should be.
+            state.window == TvWindow.Fullscreen -> TvTransition(state.copy(focused = true), TvEffect.None)
             state.window == TvWindow.Collapsed && !event.hasChannel ->
                 TvTransition(state.copy(window = TvWindow.Stopped, focused = true, playback = TvPlayback.Idle), TvEffect.None)
             state.window == TvWindow.Collapsed ->
@@ -84,15 +86,21 @@ object TvStateMachine {
                 TvTransition(state.copy(window = TvWindow.Collapsed, focused = false, playback = TvPlayback.Idle), TvEffect.Stop)
             else -> keep(state)
         }
-        // Back from fullscreen is the grid, not a preview: the icon waits for focus, so stop cleanly.
-        is TvEvent.FullscreenExited -> TvTransition(
-            state.copy(
-                window = if (event.hasChannel) TvWindow.Collapsed else TvWindow.Stopped,
-                focused = false,
-                playback = TvPlayback.Idle,
-            ),
-            TvEffect.Stop,
-        )
+        // Back from fullscreen is the small window, still playing: playback is left to the player.
+        // Focus leaving the preview is what stops the stream. An errored channel or the empty slot
+        // have nothing worth keeping, so they stop cleanly.
+        is TvEvent.FullscreenExited ->
+            if (event.hasChannel && state.playback != TvPlayback.Error)
+                TvTransition(state.copy(window = TvWindow.Preview, focused = true), TvEffect.None)
+            else
+                TvTransition(
+                    state.copy(
+                        window = if (event.hasChannel) TvWindow.Collapsed else TvWindow.Stopped,
+                        focused = false,
+                        playback = TvPlayback.Idle,
+                    ),
+                    TvEffect.Stop,
+                )
         /**
          * Home's shelf scrolled away, something else took the screen, or the user asked for the
          * screensaver while fullscreen: the slot goes up with the grid and is off the canvas by then.

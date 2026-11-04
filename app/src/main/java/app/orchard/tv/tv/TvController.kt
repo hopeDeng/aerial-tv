@@ -92,9 +92,6 @@ class TvController(
     var sourceTest by mutableStateOf<TvSourceTest?>(null); private set
     var videoStats by mutableStateOf<TvVideoStats?>(null); private set
 
-    /** Bumped when the slot let go of the screen, so Home puts focus on the top row's last tile. */
-    var releaseFocus by mutableStateOf(0); private set
-
     /** True while live video holds the decoder: Home pauses moving wallpapers. */
     val active get() = window == TvWindow.Preview || window == TvWindow.Fullscreen
 
@@ -150,6 +147,7 @@ class TvController(
 
     fun attach(view: TextureView) = player.attach(view, replay = active)
     fun detach(view: TextureView) = player.detach(view)
+    fun resize(view: TextureView) = player.resize(view)
 
     fun reloadIfChanged(force: Boolean = false) {
         val stamp = TvSources.stamp(context)
@@ -244,6 +242,13 @@ class TvController(
         scrolledAway = away
         if (away) apply(TvEvent.LeftHome)
     }
+
+    /**
+     * The slot's composition went away with a stream still live (a setting or the screensaver took
+     * Home while it was playing). Its surface dies with it, so the stream must stop rather than keep
+     * downloading to nothing.
+     */
+    fun onSlotGone() = apply(TvEvent.LeftHome)
 
     fun onWindowFocus(gained: Boolean) {
         focused = gained
@@ -367,7 +372,6 @@ class TvController(
     fun exitFullscreen() {
         closePanels()
         apply(TvEvent.FullscreenExited(hasChannel = current != null))
-        releaseFocus()
     }
 
     /** The channel list is fullscreen's own: the window state does not change while it is up. */
@@ -554,11 +558,6 @@ class TvController(
         probeJob = null
         testingSource = false
         sourceTest = null
-    }
-
-    private fun releaseFocus() {
-        DiagLog.i("tv: handing focus back to Home")
-        releaseFocus++
     }
 
     private fun playlist() = TvPlaylist(channels)

@@ -8,13 +8,15 @@ import app.orchard.tv.ui.home.PlatePadH
 import app.orchard.tv.ui.home.PlatePadV
 
 /**
- * The live slot's two resting places, in the canvas Home lays its grid in. The window's right edge
- * lines up with the last tile's, its bottom and top sit one screen-edge gap off the plate and the
- * status pill, and its width follows the screen's aspect ratio. The icon is a tile: the last tile
- * of the top row's size and right edge.
+ * The live slot's resting places, in the canvas Home lays its grid in: the tile-sized icon, the
+ * window preview, and the whole canvas when fullscreen. The window's right edge lines up with the
+ * last tile's, its bottom and top sit one screen-edge gap off the plate and the status pill, and
+ * its width follows the screen's aspect ratio. The icon is a tile: the last tile of the top row's
+ * size and right edge. The screen's own box is carried so the fullscreen stage can lerp to it.
  */
 data class TvSlotGeometry(
     val screenW: Dp,
+    val screenH: Dp,
     val windowTop: Dp,
     val windowRight: Dp,
     val windowWidth: Dp,
@@ -69,6 +71,7 @@ fun tvSlotGeometry(
     val height = bottom - top
     return TvSlotGeometry(
         screenW = screenW,
+        screenH = screenH,
         windowTop = top,
         windowRight = windowRight,
         // The aspect ratio first: Dp only divides by Dp to a Float, so the screen's width/height

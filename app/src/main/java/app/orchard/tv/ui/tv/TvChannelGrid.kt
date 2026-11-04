@@ -7,7 +7,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -49,7 +48,9 @@ import app.orchard.tv.ui.components.consumeTaps
 import app.orchard.tv.ui.theme.Type
 
 private const val Columns = 5
-private val CellHeight = 79.dp
+private const val IconCharsPerLine = 4
+private const val IconMaxLines = 3
+private val CellHeight = 62.dp
 private val Selection = Color(0xFFFF9800)
 private val PanelFill = Color.Black.copy(alpha = 0.6f)
 private val IconColors = intArrayOf(
@@ -189,11 +190,11 @@ fun TvChannelGrid(tv: TvController) {
 
 @Composable
 private fun GridCell(channel: TvChannel, selected: Boolean) {
-    Column(
+    Box(
         Modifier
             .height(CellHeight)
             .fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally,
+        contentAlignment = Alignment.Center,
     ) {
         Box(
             Modifier
@@ -215,20 +216,19 @@ private fun GridCell(channel: TvChannel, selected: Boolean) {
                 contentAlignment = Alignment.Center,
             ) {
                 BasicText(
-                    letterOf(channel.name),
-                    style = Type.Title.copy(fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White),
+                    iconLabelOf(channel.name),
+                    style = Type.Title.copy(
+                        fontSize = 12.sp,
+                        lineHeight = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        textAlign = TextAlign.Center,
+                    ),
+                    maxLines = IconMaxLines,
+                    overflow = TextOverflow.Clip,
                 )
             }
         }
-        BasicText(
-            channel.name,
-            style = Type.Body.copy(fontSize = 15.sp, color = Color.White, textAlign = TextAlign.Center),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier
-                .width(54.dp)
-                .height(16.dp),
-        )
     }
 }
 
@@ -240,8 +240,23 @@ internal fun tvGridVerticalTarget(index: Int, count: Int, down: Boolean): Int {
     return (row * Columns + current % Columns).coerceAtMost(count - 1)
 }
 
-private fun letterOf(name: String): String =
-    name.firstOrNull { !it.isWhitespace() }?.toString()?.uppercase() ?: "?"
+private fun iconLabelOf(name: String): String {
+    val trimmed = name.trim()
+    if (trimmed.isEmpty()) return "?"
+    val total = trimmed.codePointCount(0, trimmed.length)
+    if (total <= IconCharsPerLine) return trimmed
+    val builder = StringBuilder()
+    var index = 0
+    var lines = 0
+    while (index < trimmed.length && lines < IconMaxLines) {
+        val end = trimmed.offsetByCodePoints(index, minOf(IconCharsPerLine, total - lines * IconCharsPerLine))
+        if (lines > 0) builder.append('\n')
+        builder.append(trimmed, index, end)
+        index = end
+        lines++
+    }
+    return builder.toString()
+}
 
 private fun iconColor(name: String): Color =
     Color(IconColors[(name.hashCode() and 0x7fffffff) % IconColors.size])

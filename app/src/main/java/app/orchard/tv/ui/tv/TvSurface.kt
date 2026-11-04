@@ -24,17 +24,23 @@ fun TvSurface(
     val density = LocalDensity.current.density
     val radius = cornerRadius.value * density
     AndroidView(
-        factory = { context ->
-            TvTextureView(context, tv).apply {
-                this.keepScreenOn = keepScreenOn
-                if (radius > 0f) {
-                    clipToOutline = true
-                    outlineProvider = RoundedOutline(radius)
-                }
+        // The factory runs exactly once per surface: this view's identity IS the player's surface,
+        // and a new view makes TvPlayer restart the stream. Everything the slot morph changes is
+        // re-applied in update, below.
+        factory = { context -> TvTextureView(context, tv) },
+        update = { view ->
+            view.keepScreenOn = keepScreenOn
+            if (radius > 0f) {
+                view.clipToOutline = true
+                view.outlineProvider = RoundedOutline(radius)
+            } else {
+                view.clipToOutline = false
+                view.outlineProvider = ViewOutlineProvider.BACKGROUND
             }
         },
-        // The window↔fullscreen swap disposes one view while the player is on it: clear the surface
-        // first, or the player takes a runtime error and the retry burns the channel's good sources.
+        // When the view really is disposed (the screensaver or the setting took the slot away), the
+        // surface must be cleared first, or the player takes a runtime error and the retry burns
+        // the channel's good sources (Xiaomi).
         onRelease = { it.release() },
         modifier = modifier,
     )
@@ -55,6 +61,23 @@ private class TvTextureView(context: Context, private val tv: TvController) :
     init {
         isOpaque = false
         surfaceTextureListener = this
+        // The slot's morph resizes this view while the stream keeps running, and neither engine
+        // re-fits its output on its own: LibVLC goes on drawing into the window size it was last
+        // given, so the picture stayed pinned to the lower-left corner after a fullscreen toggle
+        // (Skyworth 8N07_J9000). Layout is the one callback we always get — VLC takes over the
+        // SurfaceTextureListener when it attaches its views, so onSurfaceTextureSizeChanged never
+        // reaches us.
+        var laidW = 0
+        var laidH = 0
+        addOnLayoutChangeListener { _, left, top, right, bottom, _, _, _, _ ->
+            val w = right - left
+            val h = bottom - top
+            if (w != laidW || h != laidH) {
+                laidW = w
+                laidH = h
+                if (w > 0 && h > 0) tv.resize(this)
+            }
+        }
     }
 
     override fun onSurfaceTextureAvailable(texture: SurfaceTexture, width: Int, height: Int) {

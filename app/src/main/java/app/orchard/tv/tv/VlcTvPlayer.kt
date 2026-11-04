@@ -200,6 +200,16 @@ internal class VlcTvPlayer(context: Context) : TvVideoPlayer {
         }
     }
 
+    override fun resize(view: TextureView) {
+        val player = mp ?: return
+        if (view.width <= 0 || view.height <= 0) return
+        // The slot's morph resizes the view under a live stream, and VLC keeps drawing into the window
+        // size it was last given: without this the picture stays pinned to the surface's lower-left
+        // corner at the old size (Skyworth 8N07_J9000 leaving and entering fullscreen).
+        player.vlcVout.setWindowSize(view.width, view.height)
+        player.setScale(0f)
+    }
+
     override fun detach(view: TextureView) {
         if (this.view !== view) return
         handler.removeCallbacks(watchdog)

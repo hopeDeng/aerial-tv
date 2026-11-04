@@ -3,8 +3,9 @@ package app.orchard.tv.tv
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/** The window table from the spec: an icon that previews on focus, goes fullscreen on OK, and stops
- *  the moment focus leaves it. No pin, and no panels outside fullscreen. */
+/** The window table from the spec: an icon that previews on focus and goes fullscreen on OK.
+ *  Back out of fullscreen is the preview, still playing; the stream stops when focus leaves it.
+ *  No pin, and no panels outside fullscreen. */
 class TvStateMachineTest {
     private fun run(state: TvState, event: TvEvent) = TvStateMachine.reduce(state, event)
 
@@ -24,9 +25,21 @@ class TvStateMachineTest {
     }
 
     @Test fun `a preview that loses focus stops and collapses`() {
+        // This is what ends the stream after back from fullscreen returned the preview.
         val result = run(playing, TvEvent.WindowLostFocus)
         assertEquals(TvWindow.Collapsed, result.state.window)
+        assertEquals(false, result.state.focused)
         assertEquals(TvEffect.Stop, result.effect)
+    }
+
+    @Test fun `regaining focus in fullscreen records it`() {
+        val result = run(
+            TvState(window = TvWindow.Fullscreen, focused = false, playback = TvPlayback.Playing),
+            TvEvent.WindowGotFocus(hasChannel = true),
+        )
+        assertEquals(TvWindow.Fullscreen, result.state.window)
+        assertEquals(true, result.state.focused)
+        assertEquals(TvEffect.None, result.effect)
     }
 
     @Test fun `losing focus in fullscreen changes nothing`() {
@@ -47,10 +60,20 @@ class TvStateMachineTest {
         assertEquals(TvEffect.Play, result.effect)
     }
 
-    @Test fun `back out of fullscreen is the icon, stopped`() {
+    @Test fun `back out of fullscreen is the preview, still playing`() {
         val result = run(full, TvEvent.FullscreenExited(hasChannel = true))
+        assertEquals(TvWindow.Preview, result.state.window)
+        assertEquals(true, result.state.focused)
+        assertEquals(TvPlayback.Playing, result.state.playback)
+        assertEquals(TvEffect.None, result.effect)
+    }
+
+    @Test fun `back out of an errored fullscreen stops the icon`() {
+        val result = run(
+            TvState(window = TvWindow.Fullscreen, focused = true, playback = TvPlayback.Error),
+            TvEvent.FullscreenExited(hasChannel = true),
+        )
         assertEquals(TvWindow.Collapsed, result.state.window)
-        assertEquals(false, result.state.focused)
         assertEquals(TvEffect.Stop, result.effect)
     }
 

@@ -99,6 +99,11 @@ class TvPlayer(context: Context) {
         if (usingExo) ensureExo().play(url) else vlc.play(url)
     }
 
+    fun resize(view: TextureView) {
+        if (view !== this.view) return
+        if (usingExo) ensureExo().resize(view) else vlc.resize(view)
+    }
+
     fun detach(view: TextureView) {
         if (this.view !== view) return
         if (exoCreated) exo.detach(view)
