@@ -591,7 +591,6 @@ fun HomeScreen(
         // same picture and plate, and only the row after it goes into the grid (issue #633: the
         // grid's frosted picture flashed up on the way to an app in the second row).
         val inGrid = focusedRow >= if (oneRow) 1 else 2
-        val saverFadeOffscreen = remember { DiagLog.saverFadeOffscreen(appContext) }
         // With every name shown, the top row's go on its glass plate, which grows to hold them.
         val plateNames = AerialSettings.showAllNames && AerialSettings.homePlate
         val peek = AerialSettings.peekNextRow
@@ -763,10 +762,12 @@ fun HomeScreen(
                 scroll = { scroll.value },
                 collapse = collapsePx,
                 cover = { filmCover.value },
-                // A film kept moving, or an input's picture, gets the shade a picture has, so the
-                // top row reads over it without the plate. In the grid both give way to the
-                // glass, as any wallpaper does (an input's picture cannot be blurred).
-                shadeMoving = Wallpapers.keepsMoving || sourceInput != null,
+                // An input's picture gets the shade a picture has; in the grid it gives way to the
+                // glass, as any wallpaper does (it cannot be blurred). Not a film, moving or not
+                // (the owner, 2026-10-29): since the aerial wallpaper keeps moving under keys
+                // (Wallpapers.keepsMoving) it was still shaded here, a full-screen draw each frame
+                // (Xiaomi MiTV-MFTR0: GPU 9.8 -> 6.9 ms a frame moving focus over the film).
+                shadeMoving = sourceInput != null,
                 filmStopped = { filmStopped },
                 toSaver = { toSaver.value },
                 filmGlass = (Wallpapers.filmFrost ?: Wallpapers.frosted).takeIf { Wallpapers.moves() && Wallpapers.backdrop != null },
@@ -845,6 +846,7 @@ fun HomeScreen(
                             spring(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow),
                             label = "slot",
                         )
+                        val saverFade = { ((toSaver.value - 0.05f * (index % columns)) / 0.6f).coerceIn(0f, 1f) }
                         AppTile(
                             app = app,
                             width = metrics.tileW,
@@ -852,7 +854,7 @@ fun HomeScreen(
                             focusRequester = requester(app.key),
                             enabled = gridEnabled,
                             moving = moving == app.key,
-                            appearDelayMs = (index * 28).coerceAtMost(320),
+                            opacity = { 1f - saverFade() },
                             onFocused = {
                                 focusedKey = app.key
                                 lastFocusedIndex = index
@@ -890,22 +892,17 @@ fun HomeScreen(
                                 .diagLayer("tiles")
                                 // Lifted on the shelf with the plate; the clock above stays put.
                                 .offset { slot.value - IntOffset(0, lift.roundToInt()) }
+                                // Into the screensaver, the apps go left to right, sinking a little.
+                                // Opacity lives in the tile's own layers: another layer around it dropped
+                                // the focus zoom and rounded clip on Android 9 (issue #725).
+                                .offset { IntOffset(0, (saverFade() * 18.dp.toPx()).roundToInt()) }
                                 .then(
                                     if (index >= hiddenFrom) Modifier.graphicsLayer {
                                         alpha = (scroll.value / collapsePx * 2.5f).coerceIn(0f, 1f)
                                         // No offscreen buffer: it would clip the focus frame to the tile.
                                         compositingStrategy = CompositingStrategy.ModulateAlpha
                                     } else Modifier,
-                                )
-                                // Into the screensaver, the apps go left to right, sinking a little.
-                                .graphicsLayer {
-                                    val f = ((toSaver.value - 0.05f * (index % columns)) / 0.6f).coerceIn(0f, 1f)
-                                    if (f > 0f) {
-                                        alpha = 1f - f
-                                        translationY = f * 18.dp.toPx()
-                                        compositingStrategy = if (saverFadeOffscreen) CompositingStrategy.Offscreen else CompositingStrategy.ModulateAlpha
-                                    }
-                                },
+                                ),
                             rowEnd = index % columns == columns - 1 || index == apps.lastIndex,
                             // Up from the top row's right-most tile leads to the live slot, and the
                             // slot's own Down comes back to it: the tile asks for the slot directly,

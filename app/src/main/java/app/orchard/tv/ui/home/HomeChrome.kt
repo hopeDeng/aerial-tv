@@ -1116,7 +1116,7 @@ fun StatusPill(
         Row(
             Modifier
                 .clip(RoundedCornerShape(50))
-                .background(bg)
+                .drawBehind { drawRect(bg) }
                 .height(PillHeight)
                 .padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically,

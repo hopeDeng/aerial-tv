@@ -292,6 +292,28 @@ tcast_install() {
   return $rc
 }
 
+# From Android 9 the APK goes with its own dex metadata (assets/aerial-dm in release builds, as
+# Control Center's updates do), so Android compiles Aerial as it installs. Without it Xiaomi
+# MiTV-MFTR0 (Android 14) installs it interpreted and compiles "speed" as "speed-profile", which
+# straight after the install has no profile yet: Aerial stayed interpreted ("verify"), focus moves
+# over the aerial wallpaper at p90 46 ms against 28 ms compiled. Any failure falls back to the APK alone.
+install_apk() {
+  local apk=$1 tmp out
+  if [ "${SDK:-0}" -ge 28 ] 2>/dev/null && command -v unzip >/dev/null; then
+    tmp=$(mktemp -d)
+    if unzip -p "$apk" "assets/aerial-dm/$([ "$SDK" -ge 31 ] && echo 31 || echo 28).dm" >"$tmp/aerial.dm" 2>/dev/null && [ -s "$tmp/aerial.dm" ]; then
+      cp "$apk" "$tmp/aerial.apk"
+      if out=$(adb install-multiple -r "$tmp/aerial.apk" "$tmp/aerial.dm" 2>&1) && printf '%s\n' "$out" | grep -q Success; then
+        rm -rf "$tmp"
+        printf '%s\n' "$out"
+        return 0
+      fi
+    fi
+    rm -rf "$tmp"
+  fi
+  adb install -r "$apk" 2>&1
+}
+
 BEFORE=$(installed_code)
 APK=$(build "$FLAVOR")
 echo "Installing $APK"
@@ -299,7 +321,7 @@ echo "Installing $APK"
 # INCONSISTENT_CERTIFICATES]" with exit 0, issue #1017), so only "Success" counts.
 # Catch a nonzero exit here so errexit does not skip the fallback and error explanations below.
 RC=0
-OUT=$(adb install -r "$APK" 2>&1) || RC=$?
+OUT=$(install_apk "$APK") || RC=$?
 if [ "$RC" -ne 0 ] || ! printf '%s\n' "$OUT" | grep -q Success; then
   echo "$OUT" >&2
   case "$OUT" in
@@ -364,6 +386,25 @@ if [ "$(adb shell settings get secure screensaver_enabled | tr -d '\r')" = 1 ]; 
   adb shell am broadcast -a "$PKG.CONFIG" -n "$PKG/.guard.ConfigReceiver" --ez own_screensaver true >/dev/null
   echo "Aerial's screensaver is now the TV's screensaver."
 fi
+# TCL's "open at power-on" (system boot_app_mode / boot_app_componentname, read by com.tcl.ttvs at
+# boot): with Aerial there it is the first screen after power-on, before TCL's launcher ever shows.
+# Without it the guard brings Aerial back over the launcher some 10 s later, and once on TCL MT5879
+# not at all (2026-11-03, the owner's TV, two reboots each way). Thunderbird He 6 2027 (T966D5) the
+# same (issue #1185). Only where the firmware has it: com.tcl.ttvs installed, or a value already
+# set. The old values are kept on the TV for restore.sh ("none" for an empty one).
+BOOT_APP=$(adb shell settings get system boot_app_componentname 2>/dev/null | tr -d '\r')
+if adb shell pm path com.tcl.ttvs 2>/dev/null | grep -q package: || { [ -n "$BOOT_APP" ] && [ "$BOOT_APP" != null ]; }; then
+  if [ "$BOOT_APP" != "$PKG/.MainActivity" ]; then
+    BOOT_MODE=$(adb shell settings get system boot_app_mode 2>/dev/null | tr -d '\r')
+    case "$BOOT_APP" in ""|null) BOOT_APP=none ;; esac
+    case "$BOOT_MODE" in ""|null) BOOT_MODE=none ;; esac
+    adb shell settings put global aerial_boot_app_componentname "$BOOT_APP" >/dev/null
+    adb shell settings put global aerial_boot_app_mode "$BOOT_MODE" >/dev/null
+    [ "$BOOT_MODE" = none ] && adb shell settings put system boot_app_mode boot_launcher >/dev/null
+    adb shell settings put system boot_app_componentname "$PKG/.MainActivity" >/dev/null
+    echo "TCL: the TV now opens Aerial at power-on."
+  fi
+fi
 if [ "${KEEP_ADB:-0}" = 1 ]; then
   adb shell am broadcast -a "$PKG.CONFIG" -n "$PKG/.guard.ConfigReceiver" --ez keep_adb true >/dev/null
   echo "Aerial will switch ADB debugging back on whenever the TV turns it off."
@@ -375,7 +416,8 @@ if ! adb shell am start -W -n "$PKG/.MainActivity" | grep -q "Status: ok"; then
 fi
 
 # Compose runs much smoother ahead-of-time compiled on TV chips: Home's tiles show in about half the
-# time. After Aerial's first start, not before: some firmwares compile "speed" as "speed-profile"
+# time. For TVs the dex metadata above did not reach (Android 8 and older, a debug build, a refused
+# install-multiple). After Aerial's first start, not before: some firmwares compile "speed" as "speed-profile"
 # (Xiaomi MiTV-MFTR0, Android 14), which needs the profile Aerial writes as it starts; compiled
 # straight after the install it was left interpreted ("verify").
 sleep 5

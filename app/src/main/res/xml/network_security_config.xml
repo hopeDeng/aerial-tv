@@ -15,4 +15,11 @@
             <certificates src="system" />
         </trust-anchors>
     </domain-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">api.open-meteo.com</domain>
+        <domain includeSubdomains="false">geocoding-api.open-meteo.com</domain>
+        <domain includeSubdomains="false">ipinfo.io</domain>
+        <domain includeSubdomains="false">ipwho.is</domain>
+        <domain includeSubdomains="false">ipv4.icanhazip.com</domain>
+    </domain-config>
 </network-security-config>
